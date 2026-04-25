@@ -2,14 +2,21 @@ import { VectorAmpError } from './errors.js';
 import type { RequestOptions, StreamEvent, StreamRequestOptions, Transport } from './types.js';
 import { appendQuery, joinUrl, mergeHeaders } from './utils.js';
 
+/** Options for the default REST transport. */
 export interface RestTransportOptions {
+  /** API key sent as `X-API-Key`. */
   apiKey?: string;
+  /** API origin, for example `https://api.vectoramp.com`. */
   baseUrl: string;
+  /** API prefix mounted under `baseUrl`, for example `/api/v1`. */
   apiPrefix: string;
+  /** Custom fetch implementation. Defaults to `globalThis.fetch`. */
   fetch?: typeof fetch;
+  /** Headers included with every request. */
   headers?: HeadersInit;
 }
 
+/** Default fetch-based REST transport used by {@link VectorAmpClient}. */
 export class RestTransport implements Transport {
   private readonly apiKey?: string;
   private readonly baseUrl: string;
@@ -17,6 +24,11 @@ export class RestTransport implements Transport {
   private readonly fetchImpl: typeof fetch;
   private readonly headers?: HeadersInit;
 
+  /**
+   * Create a REST transport.
+   *
+   * @param options - Transport configuration.
+   */
   constructor(options: RestTransportOptions) {
     this.apiKey = options.apiKey;
     this.baseUrl = options.baseUrl;
@@ -29,11 +41,27 @@ export class RestTransport implements Transport {
     }
   }
 
+  /**
+   * Send a REST request and parse the response body.
+   *
+   * @param method - HTTP method.
+   * @param path - API path under `apiPrefix`.
+   * @param options - Request options.
+   * @returns Parsed response body.
+   */
   async request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
     const response = await this.fetchRaw(method, path, options);
     return this.parseResponse<T>(response);
   }
 
+  /**
+   * Send a streaming REST request and parse SSE events.
+   *
+   * @param method - HTTP method.
+   * @param path - API path under `apiPrefix`.
+   * @param options - Streaming request options.
+   * @returns Async iterable of stream events.
+   */
   async *stream(method: string, path: string, options: StreamRequestOptions = {}): AsyncIterable<StreamEvent> {
     const response = await this.fetchRaw(method, path, {
       ...options,

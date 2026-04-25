@@ -23,20 +23,37 @@ import { normalizePage, toSnakeCasePayload } from './utils.js';
 
 const TEXT_EXTENSIONS = new Set(['.txt', '.md', '.mdx', '.json', '.jsonl', '.csv', '.tsv', '.html', '.xml', '.yaml', '.yml']);
 
+/** Minimal client context used by dataset resource helpers that call Intelligence. */
 export interface DatasetClientContext {
+  /** Ask an intelligence question using the parent client. */
   ask(request: string | AskRequest): Promise<AskResponse>;
 }
 
+/** Dataset object returned by the API with convenience methods bound to its id. */
 export class DatasetResource implements Dataset {
+  /** Dataset identifier. */
   readonly id: string;
+  /** Original API payload used to construct this resource. */
   readonly rawData!: Dataset;
+  /** Dataset service used by bound helper methods. */
   readonly service!: DatasetsClient;
+  /** Optional parent client context for `ask`. */
   readonly client?: DatasetClientContext;
+  /** Human-readable dataset name, when returned by the API. */
   name?: string;
+  /** Vector dimension, when returned by the API. */
   dimension?: number;
+  /** Dataset metadata, when returned by the API. */
   metadata?: Record<string, unknown>;
   [key: string]: unknown;
 
+  /**
+   * Wrap a dataset API payload as a resource.
+   *
+   * @param service - Dataset service used for follow-up calls.
+   * @param data - Dataset API payload. Must include `id`.
+   * @param client - Optional parent client context used by {@link ask}.
+   */
   constructor(service: DatasetsClient, data: Dataset, client?: DatasetClientContext) {
     if (!data.id) throw new Error('dataset id is required');
     Object.assign(this, data);
@@ -49,58 +66,125 @@ export class DatasetResource implements Dataset {
     });
   }
 
+  /**
+   * Search this dataset.
+   *
+   * @param request - Query text, query vector, or search options.
+   * @returns Search results from this dataset.
+   */
   search(request: SearchInput): Promise<SearchResponse> {
     return this.service.search(this.id, request);
   }
 
+  /**
+   * Insert vectors into this dataset.
+   *
+   * @param vectorsOrRequest - Vector records or an insert request.
+   * @returns API response for the insert operation.
+   */
   insert(vectorsOrRequest: VectorRecordInput[] | InsertVectorsRequest): Promise<unknown> {
     return this.service.insert(this.id, vectorsOrRequest);
   }
 
+  /**
+   * Add text records to this dataset for embedding and indexing.
+   *
+   * @param textsOrRequest - Single text, text records, or an add-texts request.
+   * @returns API response for the text ingestion operation.
+   */
   addTexts(textsOrRequest: AddTextsInput): Promise<unknown> {
     return this.service.addTexts(this.id, textsOrRequest);
   }
 
+  /**
+   * Delete this dataset.
+   *
+   * @returns Resolves when the API accepts the deletion.
+   */
   delete(): Promise<void> {
     return this.service.delete(this.id);
   }
 
+  /**
+   * Ask Intelligence against this dataset.
+   *
+   * @param request - Question string or full ask request. `datasetId` is set to this dataset id.
+   * @returns Generated answer and citations.
+   */
   ask(request: string | AskRequest): Promise<AskResponse> {
     if (!this.client) throw new Error('dataset ask requires a VectorAmp client context');
     const askRequest = typeof request === 'string' ? { question: request } : request;
     return this.client.ask({ ...askRequest, datasetId: this.id });
   }
 
+  /**
+   * Start ingestion from an existing or inline source for this dataset.
+   *
+   * @param request - Source id string, source reference, or source creation-style input.
+   * @returns The created ingestion job.
+   */
   ingestSource(request: IngestSourceInput): Promise<IngestionJob> {
     return this.service.ingestSource(this.id, request);
   }
 
+  /**
+   * Ingest already-read local file contents into this dataset.
+   *
+   * @param request - Files and optional source information. If no source id is supplied, a `file_upload` source is auto-created.
+   * @returns The created ingestion job.
+   */
   ingestFiles(request: IngestFilesystemRequest): Promise<IngestionJob> {
     return this.service.ingestFiles(this.id, request);
   }
 
+  /**
+   * Read text files from disk and ingest them into this dataset.
+   *
+   * @param root - Directory to walk recursively.
+   * @param options - File filters, metadata, and optional source information.
+   * @returns The created ingestion job.
+   */
   ingestFilesystem(root: string, options: IngestFilesystemOptions = {}): Promise<IngestionJob> {
     return this.service.ingestFilesystem(this.id, root, options);
   }
 }
 
+/** Dataset management, search, insertion, and ingestion API client. */
 export class DatasetsClient {
   constructor(
     private readonly transport: Transport,
     private readonly options: { client?: DatasetClientContext } = {}
   ) {}
 
+  /**
+   * List datasets.
+   *
+   * @param params - Optional pagination params (`limit`, `offset`).
+   * @returns A page of dataset resources.
+   */
   async list(params: PaginationParams = {}): Promise<Page<DatasetResource>> {
     const payload = await this.transport.request<unknown>('GET', '/datasets', { query: { ...params } });
     const page = normalizePage<Dataset>(payload, params);
     return { ...page, data: page.data.map((dataset) => this.toResource(dataset)) };
   }
 
+  /**
+   * Fetch a dataset by id.
+   *
+   * @param id - Dataset id.
+   * @returns The dataset resource.
+   */
   get(id: string): Promise<DatasetResource> {
     const path = datasetPath(id);
     return this.transport.request<Dataset>('GET', path).then((dataset) => this.toResource(dataset));
   }
 
+  /**
+   * Create a SABLE-backed dataset.
+   *
+   * @param request - Dataset creation options. Any supplied `indexType`/`index_type` is ignored; the SDK always sends `sable`.
+   * @returns The created dataset resource.
+   */
   async create(request: CreateDatasetRequest): Promise<DatasetResource> {
     const { index_type: _ignoredIndexType, indexType: _ignoredIndexTypeCamel, ...safeRequest } = request as CreateDatasetRequest & {
       index_type?: never;
@@ -113,31 +197,72 @@ export class DatasetsClient {
     return this.toResource(dataset);
   }
 
+  /**
+   * Delete a dataset by id.
+   *
+   * @param id - Dataset id.
+   * @returns Resolves when the API accepts the deletion.
+   */
   delete(id: string): Promise<void> {
     return this.transport.request<void>('DELETE', datasetPath(id));
   }
 
+  /**
+   * Search a dataset by text or vector.
+   *
+   * @param id - Dataset id.
+   * @param request - Query text, query vector, or search options.
+   * @returns Search results from the API.
+   */
   search(id: string, request: SearchInput): Promise<SearchResponse> {
     const body = normalizeSearchRequest(request);
     return this.transport.request<SearchResponse>('POST', `${datasetPath(id)}/search`, { body });
   }
 
+  /**
+   * Insert vectors into a dataset.
+   *
+   * @param id - Dataset id.
+   * @param vectorsOrRequest - Vector records or an insert request.
+   * @returns API response for the insert operation.
+   */
   insert(id: string, vectorsOrRequest: VectorRecordInput[] | InsertVectorsRequest): Promise<unknown> {
     const request = Array.isArray(vectorsOrRequest) ? { vectors: vectorsOrRequest } : vectorsOrRequest;
     return this.transport.request<unknown>('POST', `${datasetPath(id)}/vectors`, { body: toSnakeCasePayload(request) });
   }
 
+  /**
+   * Add text records to a dataset for embedding and indexing.
+   *
+   * @param id - Dataset id.
+   * @param textsOrRequest - Single text, text records, or an add-texts request.
+   * @returns API response for the text ingestion operation.
+   */
   addTexts(id: string, textsOrRequest: AddTextsInput): Promise<unknown> {
     const request = normalizeAddTextsRequest(textsOrRequest);
     return this.transport.request<unknown>('POST', `${datasetPath(id)}/texts`, { body: toSnakeCasePayload(request) });
   }
 
+  /**
+   * Start ingestion from an existing or inline source.
+   *
+   * @param id - Dataset id.
+   * @param request - Source id string, source reference, or source creation-style input.
+   * @returns The created ingestion job.
+   */
   ingestSource(id: string, request: IngestSourceInput): Promise<IngestionJob> {
     return this.transport.request<IngestionJob>('POST', `${datasetPath(id)}/ingestions/sources`, {
       body: toSnakeCasePayload(normalizeIngestSourceInput(request))
     });
   }
 
+  /**
+   * Ingest already-read local file contents into a dataset.
+   *
+   * @param id - Dataset id.
+   * @param request - Files and optional source information. If no `sourceId`, `source_id`, or `source` is supplied, a `file_upload` source is auto-created.
+   * @returns The created ingestion job.
+   */
   async ingestFiles(id: string, request: IngestFilesystemRequest): Promise<IngestionJob> {
     const body = await this.withLocalFileSource(request);
     return this.transport.request<IngestionJob>('POST', `${datasetPath(id)}/ingestions/filesystem`, {
@@ -145,6 +270,14 @@ export class DatasetsClient {
     });
   }
 
+  /**
+   * Read text files from disk and ingest them into a dataset.
+   *
+   * @param id - Dataset id.
+   * @param root - Directory to walk recursively.
+   * @param options - File filters, metadata, and optional source information.
+   * @returns The created ingestion job.
+   */
   async ingestFilesystem(id: string, root: string, options: IngestFilesystemOptions = {}): Promise<IngestionJob> {
     const files = await collectTextFiles(root, options);
     return this.ingestFiles(id, {

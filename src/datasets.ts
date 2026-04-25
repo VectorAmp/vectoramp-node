@@ -2,6 +2,8 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import type {
   AddTextsRequest,
+  AskRequest,
+  AskResponse,
   CreateDatasetRequest,
   Dataset,
   IngestFile,
@@ -19,27 +21,97 @@ import { normalizePage, toSnakeCasePayload } from './utils.js';
 
 const TEXT_EXTENSIONS = new Set(['.txt', '.md', '.mdx', '.json', '.jsonl', '.csv', '.tsv', '.html', '.xml', '.yaml', '.yml']);
 
+export interface DatasetClientContext {
+  ask(request: string | AskRequest): Promise<AskResponse>;
+}
+
+export class DatasetResource implements Dataset {
+  readonly id: string;
+  readonly rawData!: Dataset;
+  readonly service!: DatasetsClient;
+  readonly client?: DatasetClientContext;
+  name?: string;
+  dimension?: number;
+  metadata?: Record<string, unknown>;
+  [key: string]: unknown;
+
+  constructor(service: DatasetsClient, data: Dataset, client?: DatasetClientContext) {
+    if (!data.id) throw new Error('dataset id is required');
+    Object.assign(this, data);
+    this.id = data.id;
+
+    Object.defineProperties(this, {
+      rawData: { value: { ...data }, enumerable: false },
+      service: { value: service, enumerable: false },
+      client: { value: client, enumerable: false }
+    });
+  }
+
+  search(request: SearchRequest): Promise<SearchResponse> {
+    return this.service.search(this.id, request);
+  }
+
+  insert(vectorsOrRequest: VectorRecordInput[] | InsertVectorsRequest): Promise<unknown> {
+    return this.service.insert(this.id, vectorsOrRequest);
+  }
+
+  addTexts(textsOrRequest: AddTextsRequest['texts'] | AddTextsRequest): Promise<unknown> {
+    return this.service.addTexts(this.id, textsOrRequest);
+  }
+
+  delete(): Promise<void> {
+    return this.service.delete(this.id);
+  }
+
+  ask(request: string | AskRequest): Promise<AskResponse> {
+    if (!this.client) throw new Error('dataset ask requires a VectorAmp client context');
+    const askRequest = typeof request === 'string' ? { question: request } : request;
+    return this.client.ask({ ...askRequest, datasetId: this.id });
+  }
+
+  ingestSource(request: IngestSourceRequest): Promise<IngestionJob> {
+    return this.service.ingestSource(this.id, request);
+  }
+
+  ingestFiles(request: IngestFilesystemRequest): Promise<IngestionJob> {
+    return this.service.ingestFiles(this.id, request);
+  }
+
+  ingestFilesystem(
+    root: string,
+    options: { metadata?: Record<string, unknown>; extensions?: string[]; maxBytesPerFile?: number } = {}
+  ): Promise<IngestionJob> {
+    return this.service.ingestFilesystem(this.id, root, options);
+  }
+}
+
 export class DatasetsClient {
-  constructor(private readonly transport: Transport) {}
+  constructor(
+    private readonly transport: Transport,
+    private readonly options: { client?: DatasetClientContext } = {}
+  ) {}
 
-  async list(params: PaginationParams = {}): Promise<Page<Dataset>> {
+  async list(params: PaginationParams = {}): Promise<Page<DatasetResource>> {
     const payload = await this.transport.request<unknown>('GET', '/datasets', { query: { ...params } });
-    return normalizePage<Dataset>(payload, params);
+    const page = normalizePage<Dataset>(payload, params);
+    return { ...page, data: page.data.map((dataset) => this.toResource(dataset)) };
   }
 
-  get(id: string): Promise<Dataset> {
-    return this.transport.request<Dataset>('GET', datasetPath(id));
+  get(id: string): Promise<DatasetResource> {
+    const path = datasetPath(id);
+    return this.transport.request<Dataset>('GET', path).then((dataset) => this.toResource(dataset));
   }
 
-  create(request: CreateDatasetRequest): Promise<Dataset> {
+  async create(request: CreateDatasetRequest): Promise<DatasetResource> {
     const { index_type: _ignoredIndexType, indexType: _ignoredIndexTypeCamel, ...safeRequest } = request as CreateDatasetRequest & {
       index_type?: never;
       indexType?: never;
     };
 
-    return this.transport.request<Dataset>('POST', '/datasets', {
+    const dataset = await this.transport.request<Dataset>('POST', '/datasets', {
       body: toSnakeCasePayload({ ...safeRequest, indexType: 'sable' })
     });
+    return this.toResource(dataset);
   }
 
   delete(id: string): Promise<void> {
@@ -80,6 +152,10 @@ export class DatasetsClient {
   ): Promise<IngestionJob> {
     const files = await collectTextFiles(root, options);
     return this.ingestFiles(id, { root, files, metadata: options.metadata });
+  }
+
+  private toResource(dataset: Dataset): DatasetResource {
+    return new DatasetResource(this, dataset, this.options.client);
   }
 }
 

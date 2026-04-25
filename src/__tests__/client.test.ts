@@ -2,7 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { VectorAmp, VectorAmpError, type Transport } from '../index.js';
+import { DatasetResource, VectorAmp, VectorAmpError, type Transport } from '../index.js';
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -20,7 +20,9 @@ describe('VectorAmp client', () => {
 
     const page = await client.datasets.list({ limit: 10, offset: 20 });
 
-    expect(page).toEqual({ data: [{ id: 'ds_1' }], limit: 10, offset: 20 });
+    expect(page).toMatchObject({ limit: 10, offset: 20 });
+    expect(page.data[0]).toBeInstanceOf(DatasetResource);
+    expect(page.data[0]).toMatchObject({ id: 'ds_1' });
     expect(fetchMock).toHaveBeenCalledWith(
       'https://api.vectoramp.com/api/v1/datasets?limit=10&offset=20',
       expect.objectContaining({
@@ -38,21 +40,27 @@ describe('VectorAmp client', () => {
     const fetchMock = vi.fn(async () => jsonResponse({ items: [{ id: 'a' }], total: 5, next_offset: 1, has_more: true }));
     const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
 
-    await expect(client.datasets.list({ limit: 1, offset: 0 })).resolves.toEqual({
-      data: [{ id: 'a' }],
+    const page = await client.datasets.list({ limit: 1, offset: 0 });
+
+    expect(page).toMatchObject({
       limit: 1,
       offset: 0,
       total: 5,
       nextOffset: 1,
       hasMore: true
     });
+    expect(page.data[0]).toBeInstanceOf(DatasetResource);
+    expect(page.data[0]).toMatchObject({ id: 'a' });
   });
 
   it('forces SABLE when creating datasets and ignores caller-provided index type', async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ id: 'ds_1', index_type: 'sable' }, { status: 201 }));
     const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
 
-    await client.datasets.create({ name: 'docs', dimension: 768, indexType: 'hnsw' } as never);
+    const dataset = await client.datasets.create({ name: 'docs', dimension: 768, indexType: 'hnsw' } as never);
+
+    expect(dataset).toBeInstanceOf(DatasetResource);
+    expect(dataset).toMatchObject({ id: 'ds_1', index_type: 'sable' });
 
     const request = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1];
     expect(JSON.parse(request.body as string)).toEqual({ name: 'docs', dimension: 768, index_type: 'sable' });
@@ -68,7 +76,9 @@ describe('VectorAmp client', () => {
       .mockResolvedValueOnce(jsonResponse({ inserted: 2 }));
     const client = new VectorAmp({ apiKey: 'sk', baseUrl: 'https://example.test/', apiPrefix: 'v1', fetch: fetchMock as unknown as typeof fetch });
 
-    await expect(client.datasets.get('a/b')).resolves.toEqual({ id: 'a' });
+    const dataset = await client.datasets.get('a/b');
+    expect(dataset).toBeInstanceOf(DatasetResource);
+    expect(dataset).toMatchObject({ id: 'a' });
     await expect(client.datasets.delete('a/b')).resolves.toBeUndefined();
     await expect(client.datasets.search('ds', { queryText: 'hello', topK: 3, includeMetadata: true })).resolves.toEqual({
       results: [{ id: 'v1', score: 0.99 }]
@@ -81,6 +91,57 @@ describe('VectorAmp client', () => {
     expect(JSON.parse(fetchMock.mock.calls[2][1].body as string)).toMatchObject({ query_text: 'hello', top_k: 3, include_metadata: true });
     expect(JSON.parse(fetchMock.mock.calls[3][1].body as string)).toEqual({ vectors: [{ id: 'v1', vector: [1, 2], metadata: { tag: 'x' } }] });
     expect(JSON.parse(fetchMock.mock.calls[4][1].body as string)).toEqual({ texts: ['alpha', { text: 'beta', metadata: { kind: 'note' } }] });
+  });
+
+  it('returns dataset resources with instance methods that delegate to services', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ id: 'ds', name: 'Docs', metadata: { team: 'eng' } }, { status: 201 }))
+      .mockResolvedValueOnce(jsonResponse({ results: [{ id: 'v1', score: 0.9 }] }))
+      .mockResolvedValueOnce(jsonResponse({ inserted: 1 }))
+      .mockResolvedValueOnce(jsonResponse({ inserted: 2 }))
+      .mockResolvedValueOnce(jsonResponse({ answer: 'because SABLE' }))
+      .mockResolvedValueOnce(jsonResponse({ answer: 'with context' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'job_source' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'job_files' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'job_fs' }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+    const root = join(tmpdir(), `vectoramp-sdk-resource-${Date.now()}`);
+    await mkdir(root, { recursive: true });
+    await writeFile(join(root, 'note.md'), 'Note');
+
+    const dataset = await client.datasets.create({ name: 'Docs' });
+
+    expect(dataset).toBeInstanceOf(DatasetResource);
+    expect(dataset.id).toBe('ds');
+    expect(dataset.rawData).toEqual({ id: 'ds', name: 'Docs', metadata: { team: 'eng' } });
+    expect(Object.keys(dataset)).not.toContain('service');
+    await expect(dataset.search({ queryText: 'sable', topK: 1 })).resolves.toEqual({ results: [{ id: 'v1', score: 0.9 }] });
+    await expect(dataset.insert([{ id: 'v1', vector: [1, 2, 3] }])).resolves.toEqual({ inserted: 1 });
+    await expect(dataset.addTexts(['hello'])).resolves.toEqual({ inserted: 2 });
+    await expect(dataset.ask('why?')).resolves.toEqual({ answer: 'because SABLE' });
+    await expect(dataset.ask({ question: 'why with context?', topK: 2 })).resolves.toEqual({ answer: 'with context' });
+    await expect(dataset.ingestSource({ source: 's3', uri: 's3://bucket/docs' })).resolves.toEqual({ id: 'job_source' });
+    await expect(dataset.ingestFiles({ files: [{ path: 'a.md', content: 'A' }] })).resolves.toEqual({ id: 'job_files' });
+    await expect(dataset.ingestFilesystem(root)).resolves.toEqual({ id: 'job_fs' });
+    await expect(dataset.delete()).resolves.toBeUndefined();
+    expect(() => new DatasetResource(dataset.service, { id: 'orphan' }).ask('hi')).toThrow('dataset ask requires a VectorAmp client context');
+
+    expect(JSON.parse(fetchMock.mock.calls[4][1].body as string)).toEqual({ question: 'why?', dataset_id: 'ds' });
+    expect(JSON.parse(fetchMock.mock.calls[5][1].body as string)).toEqual({ question: 'why with context?', top_k: 2, dataset_id: 'ds' });
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      'https://api.vectoramp.com/api/v1/datasets',
+      'https://api.vectoramp.com/api/v1/datasets/ds/search',
+      'https://api.vectoramp.com/api/v1/datasets/ds/vectors',
+      'https://api.vectoramp.com/api/v1/datasets/ds/texts',
+      'https://api.vectoramp.com/api/v1/intelligence/query',
+      'https://api.vectoramp.com/api/v1/intelligence/query',
+      'https://api.vectoramp.com/api/v1/datasets/ds/ingestions/sources',
+      'https://api.vectoramp.com/api/v1/datasets/ds/ingestions/filesystem',
+      'https://api.vectoramp.com/api/v1/datasets/ds/ingestions/filesystem',
+      'https://api.vectoramp.com/api/v1/datasets/ds'
+    ]);
   });
 
   it('supports ingestion from sources and local filesystem payloads', async () => {
@@ -150,11 +211,11 @@ describe('VectorAmp client', () => {
   it('handles text responses, empty prefixes, and fallback error messages', async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(new Response('OK', { status: 200, headers: { 'content-type': 'text/plain' } }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'abc' }))
       .mockResolvedValueOnce(new Response('nope', { status: 500, statusText: 'Server Error' }));
     const client = new VectorAmp({ apiKey: 'sk', baseUrl: 'https://example.test////', apiPrefix: '', fetch: fetchMock as unknown as typeof fetch });
 
-    await expect(client.datasets.get('abc')).resolves.toBe('OK');
+    await expect(client.datasets.get('abc')).resolves.toMatchObject({ id: 'abc' });
     await expect(client.datasets.get('abc')).rejects.toMatchObject({
       message: 'VectorAmp API request failed: 500 Server Error',
       body: 'nope'

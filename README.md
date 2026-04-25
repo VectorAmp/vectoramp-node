@@ -29,12 +29,12 @@ const dataset = await client.datasets.create({
   metadata: { app: 'support-bot' }
 });
 
-await client.datasets.addTexts(dataset.id, [
+await dataset.addTexts([
   'VectorAmp stores and searches vectors at scale.',
   { text: 'SABLE is VectorAmp\'s index architecture.', metadata: { source: 'whitepaper' } }
 ]);
 
-const results = await client.datasets.search(dataset.id, {
+const results = await dataset.search({
   queryText: 'How does VectorAmp search documents?',
   topK: 5
 });
@@ -58,28 +58,41 @@ The SDK also reads `VECTORAMP_API_KEY` when `apiKey` is omitted.
 
 ## Datasets
 
+`create`, `get`, and `list` return `DatasetResource` objects. They expose the raw dataset fields (`id`, `name`, `metadata`, etc.) plus instance methods for common dataset-scoped operations. Service-style calls remain supported.
+
 ```ts
 // Pagination envelopes are always returned for list methods.
 const page = await client.datasets.list({ limit: 20, offset: 0 });
 console.log(page.data, page.total, page.nextOffset);
 
 const dataset = await client.datasets.get('dataset_id');
+console.log(dataset.id, dataset.rawData);
 
+await dataset.delete();
+
+// Service-style methods still work when you prefer explicit ids.
 await client.datasets.delete('dataset_id');
 ```
 
 ## Insert vectors
 
 ```ts
-await client.datasets.insert('dataset_id', [
+const dataset = await client.datasets.get('dataset_id');
+
+await dataset.insert([
   { id: 'vec_1', vector: [0.12, 0.98, 0.42], metadata: { title: 'Intro' } }
+]);
+
+// Equivalent service-style call:
+await client.datasets.insert(dataset.id, [
+  { id: 'vec_2', vector: [0.22, 0.18, 0.62] }
 ]);
 ```
 
 ## Add texts
 
 ```ts
-await client.datasets.addTexts('dataset_id', [
+await dataset.addTexts([
   'Plain text chunk',
   { id: 'doc_2', text: 'Text with metadata', metadata: { url: 'https://example.com' } }
 ]);
@@ -88,13 +101,13 @@ await client.datasets.addTexts('dataset_id', [
 ## Search
 
 ```ts
-await client.datasets.search('dataset_id', {
+await dataset.search({
   queryText: 'semantic query',
   topK: 10,
   includeMetadata: true
 });
 
-await client.datasets.search('dataset_id', {
+await client.datasets.search(dataset.id, {
   vector: [0.1, 0.2, 0.3],
   topK: 10
 });
@@ -105,7 +118,7 @@ await client.datasets.search('dataset_id', {
 Source ingestion delegates to REST ingestion endpoints:
 
 ```ts
-await client.datasets.ingestSource('dataset_id', {
+await dataset.ingestSource({
   source: 's3',
   uri: 's3://my-bucket/docs/',
   config: { recursive: true }
@@ -115,7 +128,7 @@ await client.datasets.ingestSource('dataset_id', {
 For local filesystem ingestion, the SDK reads common text files and sends their contents to the filesystem ingestion endpoint:
 
 ```ts
-await client.datasets.ingestFilesystem('dataset_id', './docs', {
+await dataset.ingestFilesystem('./docs', {
   extensions: ['.md', '.txt'],
   maxBytesPerFile: 512_000
 });
@@ -124,9 +137,8 @@ await client.datasets.ingestFilesystem('dataset_id', './docs', {
 ## Intelligence / ask
 
 ```ts
-const answer = await client.ask({
+const answer = await dataset.ask({
   question: 'What changed in the Q4 planning docs?',
-  datasetId: 'dataset_id',
   topK: 8
 });
 

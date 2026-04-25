@@ -8,7 +8,7 @@ import type {
   Dataset,
   IngestFile,
   IngestFilesystemRequest,
-  IngestSourceRequest,
+  IngestSourceInput,
   IngestionJob,
   InsertVectorsRequest,
   Page,
@@ -69,7 +69,7 @@ export class DatasetResource implements Dataset {
     return this.client.ask({ ...askRequest, datasetId: this.id });
   }
 
-  ingestSource(request: IngestSourceRequest): Promise<IngestionJob> {
+  ingestSource(request: IngestSourceInput): Promise<IngestionJob> {
     return this.service.ingestSource(this.id, request);
   }
 
@@ -133,9 +133,9 @@ export class DatasetsClient {
     return this.transport.request<unknown>('POST', `${datasetPath(id)}/texts`, { body: toSnakeCasePayload(request) });
   }
 
-  ingestSource(id: string, request: IngestSourceRequest): Promise<IngestionJob> {
+  ingestSource(id: string, request: IngestSourceInput): Promise<IngestionJob> {
     return this.transport.request<IngestionJob>('POST', `${datasetPath(id)}/ingestions/sources`, {
-      body: toSnakeCasePayload(request)
+      body: toSnakeCasePayload(normalizeIngestSourceInput(request))
     });
   }
 
@@ -176,6 +176,10 @@ function normalizeSearchRequest(request: SearchRequest): unknown {
     includeVectors,
     includeMetadata
   });
+}
+
+function normalizeIngestSourceInput(request: IngestSourceInput): IngestSourceInput | { sourceId: string } {
+  return typeof request === 'string' ? { sourceId: request } : request;
 }
 
 async function collectTextFiles(

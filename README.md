@@ -115,7 +115,34 @@ await client.datasets.search(dataset.id, {
 
 ## Ingestion
 
-Source ingestion delegates to REST ingestion endpoints:
+Source builders keep ingestion payloads typed while matching the REST `source_type` contract (`s3`, `web`, `gdrive`, `file_upload`).
+
+```ts
+import { s3Source, webSource } from '@vectoramp/vectoramp';
+
+await dataset.ingestSource(s3Source({
+  uri: 's3://my-bucket/docs/',
+  config: { recursive: true }
+}));
+
+await dataset.ingestSource(webSource('https://docs.example.com'));
+
+// Existing source ids are accepted too.
+await dataset.ingestSource('source_id');
+```
+
+You can create reusable ingestion sources through `client.sources`:
+
+```ts
+const web = await client.sources.createWeb({ url: 'https://docs.example.com' });
+const s3 = await client.sources.createS3('s3://my-bucket/docs/');
+const drive = await client.sources.createGoogleDrive({ folderId: 'google-drive-folder-id' });
+const upload = await client.sources.createFileUpload({ fileIds: ['uploaded_file_id'] });
+```
+
+Use `genericSource(sourceType, payload)` as an escape hatch for source types not yet modeled by the SDK.
+
+The older generic shape remains supported for compatibility:
 
 ```ts
 await dataset.ingestSource({

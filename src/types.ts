@@ -108,13 +108,63 @@ export interface AddTextsRequest {
   [key: string]: unknown;
 }
 
-export interface IngestSourceRequest {
-  source: string;
+export type SourceType = 's3' | 'web' | 'gdrive' | 'file_upload';
+
+export interface BaseSourceOptions {
+  name?: string;
   uri?: string;
   config?: JsonObject;
   metadata?: JsonObject;
   [key: string]: unknown;
 }
+
+export interface WebSourceOptions extends BaseSourceOptions {
+  url?: string;
+}
+
+export interface S3SourceOptions extends BaseSourceOptions {
+  bucket?: string;
+  prefix?: string;
+  region?: string;
+}
+
+export interface GoogleDriveSourceOptions extends BaseSourceOptions {
+  folderId?: string;
+  fileId?: string;
+}
+
+export interface FileUploadSourceOptions extends BaseSourceOptions {
+  fileIds?: string[];
+}
+
+export interface IngestionSourceInput extends BaseSourceOptions {
+  source_type: SourceType | (string & {});
+}
+
+export type SourceCreateInput = IngestionSourceInput;
+
+export interface IngestionSource {
+  id?: string;
+  source_type?: string;
+  sourceType?: string;
+  name?: string;
+  uri?: string;
+  config?: JsonObject;
+  metadata?: JsonObject;
+  [key: string]: unknown;
+}
+
+export interface IngestSourceRequest {
+  source?: string;
+  sourceId?: string;
+  source_id?: string;
+  uri?: string;
+  config?: JsonObject;
+  metadata?: JsonObject;
+  [key: string]: unknown;
+}
+
+export type IngestSourceInput = string | IngestSourceRequest | IngestionSourceInput;
 
 export interface IngestFile {
   path: string;

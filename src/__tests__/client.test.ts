@@ -2,7 +2,18 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DatasetResource, VectorAmp, VectorAmpError, type Transport } from '../index.js';
+import {
+  DatasetResource,
+  VectorAmp,
+  VectorAmpError,
+  fileUploadSource,
+  genericSource,
+  googleDriveSource,
+  s3Source,
+  webSource,
+  type SourceCreateInput,
+  type Transport
+} from '../index.js';
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -154,14 +165,17 @@ describe('VectorAmp client', () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse({ id: 'job_source' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'job_source_id' }))
       .mockResolvedValueOnce(jsonResponse({ id: 'job_fs' }));
     const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
 
     await expect(client.datasets.ingestSource('ds', { source: 's3', uri: 's3://bucket/path' })).resolves.toEqual({ id: 'job_source' });
+    await expect(client.datasets.ingestSource('ds', 'src_123')).resolves.toEqual({ id: 'job_source_id' });
     await expect(client.datasets.ingestFilesystem('ds', root)).resolves.toEqual({ id: 'job_fs' });
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({ source: 's3', uri: 's3://bucket/path' });
-    const fsBody = JSON.parse(fetchMock.mock.calls[1][1].body as string);
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ source_id: 'src_123' });
+    const fsBody = JSON.parse(fetchMock.mock.calls[2][1].body as string);
     expect(fsBody.root).toBe(root);
     expect(fsBody.files).toEqual(
       expect.arrayContaining([
@@ -170,6 +184,50 @@ describe('VectorAmp client', () => {
       ])
     );
     expect(fsBody.files).toHaveLength(2);
+  });
+
+  it('builds typed ingestion sources and creates them through client.sources', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ id: 'src_web', source_type: 'web' }, { status: 201 }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'src_s3', source_type: 's3' }, { status: 201 }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'src_gdrive', source_type: 'gdrive' }, { status: 201 }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'src_upload', source_type: 'file_upload' }, { status: 201 }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'job_inline' }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    const typedWeb = webSource({ url: 'https://example.com/docs', config: { maxDepth: 2 } }) satisfies SourceCreateInput;
+    expect(s3Source('s3://bucket/docs')).toEqual({ source_type: 's3', uri: 's3://bucket/docs' });
+    expect(googleDriveSource({ folderId: 'folder_1' })).toEqual({ source_type: 'gdrive', folderId: 'folder_1' });
+    expect(fileUploadSource({ fileIds: ['file_1'] })).toEqual({ source_type: 'file_upload', fileIds: ['file_1'] });
+    expect(genericSource('custom_source', { uri: 'custom://source' })).toEqual({ source_type: 'custom_source', uri: 'custom://source' });
+
+    await expect(client.sources.createWeb({ url: 'https://example.com/docs', config: { maxDepth: 2 } })).resolves.toMatchObject({ id: 'src_web' });
+    await expect(client.sources.createS3({ uri: 's3://bucket/docs', region: 'us-east-1' })).resolves.toMatchObject({ id: 'src_s3' });
+    await expect(client.sources.createGoogleDrive({ folderId: 'folder_1' })).resolves.toMatchObject({ id: 'src_gdrive' });
+    await expect(client.sources.createFileUpload({ fileIds: ['file_1'] })).resolves.toMatchObject({ id: 'src_upload' });
+    await expect(client.datasets.ingestSource('ds', typedWeb)).resolves.toEqual({ id: 'job_inline' });
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      'https://api.vectoramp.com/api/v1/ingestion/sources',
+      'https://api.vectoramp.com/api/v1/ingestion/sources',
+      'https://api.vectoramp.com/api/v1/ingestion/sources',
+      'https://api.vectoramp.com/api/v1/ingestion/sources',
+      'https://api.vectoramp.com/api/v1/datasets/ds/ingestions/sources'
+    ]);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({
+      source_type: 'web',
+      uri: 'https://example.com/docs',
+      config: { max_depth: 2 }
+    });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ source_type: 's3', uri: 's3://bucket/docs', region: 'us-east-1' });
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body as string)).toEqual({ source_type: 'gdrive', folder_id: 'folder_1' });
+    expect(JSON.parse(fetchMock.mock.calls[3][1].body as string)).toEqual({ source_type: 'file_upload', file_ids: ['file_1'] });
+    expect(JSON.parse(fetchMock.mock.calls[4][1].body as string)).toEqual({
+      source_type: 'web',
+      uri: 'https://example.com/docs',
+      config: { max_depth: 2 }
+    });
   });
 
   it('supports non-streaming ask and streaming SSE ask', async () => {

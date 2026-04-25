@@ -1,5 +1,6 @@
 import { DatasetsClient } from './datasets.js';
 import { IntelligenceClient } from './intelligence.js';
+import { SourcesClient } from './sources.js';
 import { RestTransport } from './transport.js';
 import type { AskRequest, AskResponse, StreamEvent, Transport, VectorAmpClientOptions } from './types.js';
 
@@ -9,6 +10,7 @@ const DEFAULT_API_PREFIX = '/api/v1';
 export class VectorAmpClient {
   readonly datasets: DatasetsClient;
   readonly intelligence: IntelligenceClient;
+  readonly sources: SourcesClient;
   readonly transport: Transport;
 
   constructor(options: VectorAmpClientOptions = {}) {
@@ -21,6 +23,7 @@ export class VectorAmpClient {
     });
 
     this.intelligence = new IntelligenceClient(this.transport);
+    this.sources = new SourcesClient(this.transport);
     this.datasets = new DatasetsClient(this.transport, { client: this });
   }
 

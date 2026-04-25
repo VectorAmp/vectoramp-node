@@ -20,8 +20,8 @@ export class VectorAmpClient {
       headers: options.headers
     });
 
-    this.datasets = new DatasetsClient(this.transport);
     this.intelligence = new IntelligenceClient(this.transport);
+    this.datasets = new DatasetsClient(this.transport, { client: this });
   }
 
   ask(request: string | AskRequest): Promise<AskResponse> {

@@ -92,8 +92,12 @@ await client.datasets.insert(dataset.id, [
 ## Add texts
 
 ```ts
+// Single string for the common case:
+await dataset.addTexts('Plain text chunk');
+
+// Or batch strings / structured text records:
 await dataset.addTexts([
-  'Plain text chunk',
+  'Another plain text chunk',
   { id: 'doc_2', text: 'Text with metadata', metadata: { url: 'https://example.com' } }
 ]);
 ```
@@ -101,16 +105,18 @@ await dataset.addTexts([
 ## Search
 
 ```ts
+// Minimal text search:
+await dataset.search('semantic query');
+
+// Full search options remain available:
 await dataset.search({
   queryText: 'semantic query',
   topK: 10,
   includeMetadata: true
 });
 
-await client.datasets.search(dataset.id, {
-  vector: [0.1, 0.2, 0.3],
-  topK: 10
-});
+// Service-style calls accept text, vectors, or full request objects.
+await client.datasets.search(dataset.id, [0.1, 0.2, 0.3]);
 ```
 
 ## Ingestion
@@ -152,19 +158,31 @@ await dataset.ingestSource({
 });
 ```
 
-For local filesystem ingestion, the SDK reads common text files and sends their contents to the filesystem ingestion endpoint:
+For local filesystem ingestion, the SDK reads common text files and sends their contents to the filesystem ingestion endpoint. You do **not** need to create or name a source first: when `sourceId`/`source` is omitted, the SDK creates a `file_upload` source with a default name like `Local files: docs` and attaches it automatically.
 
 ```ts
 await dataset.ingestFilesystem('./docs', {
   extensions: ['.md', '.txt'],
   maxBytesPerFile: 512_000
 });
+
+// Optional: customize the auto-created source name or use an existing source id.
+await dataset.ingestFilesystem('./docs', { sourceName: 'Product docs upload' });
+await dataset.ingestFilesystem('./docs', { sourceId: 'existing_source_id' });
+
+// Inline file payloads work the same way and also auto-create a file_upload source.
+await dataset.ingestFiles({
+  files: [{ path: 'intro.md', content: '# Intro' }]
+});
 ```
 
 ## Intelligence / ask
 
 ```ts
-const answer = await dataset.ask({
+const answer = await dataset.ask('What changed in the Q4 planning docs?');
+
+// Full ask options remain available when needed.
+await dataset.ask({
   question: 'What changed in the Q4 planning docs?',
   topK: 8
 });

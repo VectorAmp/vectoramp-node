@@ -91,17 +91,17 @@ describe('VectorAmp client', () => {
     expect(dataset).toBeInstanceOf(DatasetResource);
     expect(dataset).toMatchObject({ id: 'a' });
     await expect(client.datasets.delete('a/b')).resolves.toBeUndefined();
-    await expect(client.datasets.search('ds', { queryText: 'hello', topK: 3, includeMetadata: true })).resolves.toEqual({
+    await expect(client.datasets.search('ds', 'hello')).resolves.toEqual({
       results: [{ id: 'v1', score: 0.99 }]
     });
     await client.datasets.insert('ds', [{ id: 'v1', vector: [1, 2], metadata: { tag: 'x' } }]);
-    await client.datasets.addTexts('ds', ['alpha', { text: 'beta', metadata: { kind: 'note' } }]);
+    await client.datasets.addTexts('ds', 'alpha');
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, 'https://example.test/v1/datasets/a%2Fb', expect.objectContaining({ method: 'GET' }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, 'https://example.test/v1/datasets/a%2Fb', expect.objectContaining({ method: 'DELETE' }));
-    expect(JSON.parse(fetchMock.mock.calls[2][1].body as string)).toMatchObject({ query_text: 'hello', top_k: 3, include_metadata: true });
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body as string)).toEqual({ query_text: 'hello' });
     expect(JSON.parse(fetchMock.mock.calls[3][1].body as string)).toEqual({ vectors: [{ id: 'v1', vector: [1, 2], metadata: { tag: 'x' } }] });
-    expect(JSON.parse(fetchMock.mock.calls[4][1].body as string)).toEqual({ texts: ['alpha', { text: 'beta', metadata: { kind: 'note' } }] });
+    expect(JSON.parse(fetchMock.mock.calls[4][1].body as string)).toEqual({ texts: ['alpha'] });
   });
 
   it('returns dataset resources with instance methods that delegate to services', async () => {
@@ -114,7 +114,9 @@ describe('VectorAmp client', () => {
       .mockResolvedValueOnce(jsonResponse({ answer: 'because SABLE' }))
       .mockResolvedValueOnce(jsonResponse({ answer: 'with context' }))
       .mockResolvedValueOnce(jsonResponse({ id: 'job_source' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'src_files' }, { status: 201 }))
       .mockResolvedValueOnce(jsonResponse({ id: 'job_files' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'src_fs' }, { status: 201 }))
       .mockResolvedValueOnce(jsonResponse({ id: 'job_fs' }))
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
     const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
@@ -149,7 +151,9 @@ describe('VectorAmp client', () => {
       'https://api.vectoramp.com/api/v1/intelligence/query',
       'https://api.vectoramp.com/api/v1/intelligence/query',
       'https://api.vectoramp.com/api/v1/datasets/ds/ingestions/sources',
+      'https://api.vectoramp.com/api/v1/ingestion/sources',
       'https://api.vectoramp.com/api/v1/datasets/ds/ingestions/filesystem',
+      'https://api.vectoramp.com/api/v1/ingestion/sources',
       'https://api.vectoramp.com/api/v1/datasets/ds/ingestions/filesystem',
       'https://api.vectoramp.com/api/v1/datasets/ds'
     ]);
@@ -166,16 +170,21 @@ describe('VectorAmp client', () => {
       .fn()
       .mockResolvedValueOnce(jsonResponse({ id: 'job_source' }))
       .mockResolvedValueOnce(jsonResponse({ id: 'job_source_id' }))
-      .mockResolvedValueOnce(jsonResponse({ id: 'job_fs' }));
+      .mockResolvedValueOnce(jsonResponse({ id: 'src_fs' }, { status: 201 }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'job_fs' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'job_existing_source' }));
     const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
 
     await expect(client.datasets.ingestSource('ds', { source: 's3', uri: 's3://bucket/path' })).resolves.toEqual({ id: 'job_source' });
     await expect(client.datasets.ingestSource('ds', 'src_123')).resolves.toEqual({ id: 'job_source_id' });
     await expect(client.datasets.ingestFilesystem('ds', root)).resolves.toEqual({ id: 'job_fs' });
+    await expect(client.datasets.ingestFiles('ds', { sourceId: 'existing_src', source_id: undefined, files: [{ path: 'three.md', content: 'Three' }] })).resolves.toEqual({ id: 'job_existing_source' });
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({ source: 's3', uri: 's3://bucket/path' });
     expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ source_id: 'src_123' });
-    const fsBody = JSON.parse(fetchMock.mock.calls[2][1].body as string);
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body as string)).toEqual({ source_type: 'file_upload', name: expect.stringMatching(/^Local files: /) });
+    const fsBody = JSON.parse(fetchMock.mock.calls[3][1].body as string);
+    expect(fsBody.source_id).toBe('src_fs');
     expect(fsBody.root).toBe(root);
     expect(fsBody.files).toEqual(
       expect.arrayContaining([
@@ -184,6 +193,7 @@ describe('VectorAmp client', () => {
       ])
     );
     expect(fsBody.files).toHaveLength(2);
+    expect(JSON.parse(fetchMock.mock.calls[4][1].body as string)).toEqual({ files: [{ path: 'three.md', content: 'Three' }], source_id: 'existing_src' });
   });
 
   it('builds typed ingestion sources and creates them through client.sources', async () => {
@@ -199,7 +209,7 @@ describe('VectorAmp client', () => {
     const typedWeb = webSource({ url: 'https://example.com/docs', config: { maxDepth: 2 } }) satisfies SourceCreateInput;
     expect(s3Source('s3://bucket/docs')).toEqual({ source_type: 's3', uri: 's3://bucket/docs' });
     expect(googleDriveSource({ folderId: 'folder_1' })).toEqual({ source_type: 'gdrive', folderId: 'folder_1' });
-    expect(fileUploadSource({ fileIds: ['file_1'] })).toEqual({ source_type: 'file_upload', fileIds: ['file_1'] });
+    expect(fileUploadSource({ fileIds: ['file_1'] })).toEqual({ source_type: 'file_upload', name: 'Local file upload', fileIds: ['file_1'] });
     expect(genericSource('custom_source', { uri: 'custom://source' })).toEqual({ source_type: 'custom_source', uri: 'custom://source' });
 
     await expect(client.sources.createWeb({ url: 'https://example.com/docs', config: { maxDepth: 2 } })).resolves.toMatchObject({ id: 'src_web' });
@@ -222,7 +232,7 @@ describe('VectorAmp client', () => {
     });
     expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ source_type: 's3', uri: 's3://bucket/docs', region: 'us-east-1' });
     expect(JSON.parse(fetchMock.mock.calls[2][1].body as string)).toEqual({ source_type: 'gdrive', folder_id: 'folder_1' });
-    expect(JSON.parse(fetchMock.mock.calls[3][1].body as string)).toEqual({ source_type: 'file_upload', file_ids: ['file_1'] });
+    expect(JSON.parse(fetchMock.mock.calls[3][1].body as string)).toEqual({ source_type: 'file_upload', name: 'Local file upload', file_ids: ['file_1'] });
     expect(JSON.parse(fetchMock.mock.calls[4][1].body as string)).toEqual({
       source_type: 'web',
       uri: 'https://example.com/docs',

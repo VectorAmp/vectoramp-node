@@ -1,19 +1,21 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { basename, join, relative } from 'node:path';
 import type {
+  AddTextsInput,
   AddTextsRequest,
   AskRequest,
   AskResponse,
   CreateDatasetRequest,
   Dataset,
   IngestFile,
+  IngestFilesystemOptions,
   IngestFilesystemRequest,
   IngestSourceInput,
   IngestionJob,
   InsertVectorsRequest,
   Page,
   PaginationParams,
-  SearchRequest,
+  SearchInput,
   SearchResponse,
   Transport
 } from './types.js';
@@ -47,7 +49,7 @@ export class DatasetResource implements Dataset {
     });
   }
 
-  search(request: SearchRequest): Promise<SearchResponse> {
+  search(request: SearchInput): Promise<SearchResponse> {
     return this.service.search(this.id, request);
   }
 
@@ -55,7 +57,7 @@ export class DatasetResource implements Dataset {
     return this.service.insert(this.id, vectorsOrRequest);
   }
 
-  addTexts(textsOrRequest: AddTextsRequest['texts'] | AddTextsRequest): Promise<unknown> {
+  addTexts(textsOrRequest: AddTextsInput): Promise<unknown> {
     return this.service.addTexts(this.id, textsOrRequest);
   }
 
@@ -77,10 +79,7 @@ export class DatasetResource implements Dataset {
     return this.service.ingestFiles(this.id, request);
   }
 
-  ingestFilesystem(
-    root: string,
-    options: { metadata?: Record<string, unknown>; extensions?: string[]; maxBytesPerFile?: number } = {}
-  ): Promise<IngestionJob> {
+  ingestFilesystem(root: string, options: IngestFilesystemOptions = {}): Promise<IngestionJob> {
     return this.service.ingestFilesystem(this.id, root, options);
   }
 }
@@ -118,7 +117,7 @@ export class DatasetsClient {
     return this.transport.request<void>('DELETE', datasetPath(id));
   }
 
-  search(id: string, request: SearchRequest): Promise<SearchResponse> {
+  search(id: string, request: SearchInput): Promise<SearchResponse> {
     const body = normalizeSearchRequest(request);
     return this.transport.request<SearchResponse>('POST', `${datasetPath(id)}/search`, { body });
   }
@@ -128,8 +127,8 @@ export class DatasetsClient {
     return this.transport.request<unknown>('POST', `${datasetPath(id)}/vectors`, { body: toSnakeCasePayload(request) });
   }
 
-  addTexts(id: string, textsOrRequest: AddTextsRequest['texts'] | AddTextsRequest): Promise<unknown> {
-    const request = Array.isArray(textsOrRequest) ? { texts: textsOrRequest } : textsOrRequest;
+  addTexts(id: string, textsOrRequest: AddTextsInput): Promise<unknown> {
+    const request = normalizeAddTextsRequest(textsOrRequest);
     return this.transport.request<unknown>('POST', `${datasetPath(id)}/texts`, { body: toSnakeCasePayload(request) });
   }
 
@@ -139,19 +138,36 @@ export class DatasetsClient {
     });
   }
 
-  ingestFiles(id: string, request: IngestFilesystemRequest): Promise<IngestionJob> {
+  async ingestFiles(id: string, request: IngestFilesystemRequest): Promise<IngestionJob> {
+    const body = await this.withLocalFileSource(request);
     return this.transport.request<IngestionJob>('POST', `${datasetPath(id)}/ingestions/filesystem`, {
-      body: toSnakeCasePayload(request)
+      body: toSnakeCasePayload(body)
     });
   }
 
-  async ingestFilesystem(
-    id: string,
-    root: string,
-    options: { metadata?: Record<string, unknown>; extensions?: string[]; maxBytesPerFile?: number } = {}
-  ): Promise<IngestionJob> {
+  async ingestFilesystem(id: string, root: string, options: IngestFilesystemOptions = {}): Promise<IngestionJob> {
     const files = await collectTextFiles(root, options);
-    return this.ingestFiles(id, { root, files, metadata: options.metadata });
+    return this.ingestFiles(id, {
+      root,
+      files,
+      metadata: options.metadata,
+      source: options.source,
+      sourceId: options.sourceId,
+      source_id: options.source_id,
+      sourceName: options.sourceName
+    });
+  }
+
+  private async withLocalFileSource(request: IngestFilesystemRequest): Promise<IngestFilesystemRequest> {
+    const explicitSourceId = request.sourceId ?? request.source_id ?? request.source;
+    if (explicitSourceId) return withCanonicalSourceId(request, explicitSourceId);
+
+    const source = await this.transport.request<{ id?: string }>('POST', '/ingestion/sources', {
+      body: toSnakeCasePayload({ sourceType: 'file_upload', name: request.sourceName ?? defaultFileUploadSourceName(request.root) })
+    });
+    if (!source.id) throw new Error('VectorAmp API did not return an id for the auto-created file upload source');
+
+    return withCanonicalSourceId(request, source.id);
   }
 
   private toResource(dataset: Dataset): DatasetResource {
@@ -166,7 +182,10 @@ function datasetPath(id: string): string {
   return `/datasets/${encodeURIComponent(id)}`;
 }
 
-function normalizeSearchRequest(request: SearchRequest): unknown {
+function normalizeSearchRequest(request: SearchInput): unknown {
+  if (typeof request === 'string') return { query_text: request };
+  if (Array.isArray(request)) return { query: request };
+
   const { vector, query, queryText, topK, includeVectors, includeMetadata, ...rest } = request;
   return toSnakeCasePayload({
     ...rest,
@@ -178,8 +197,23 @@ function normalizeSearchRequest(request: SearchRequest): unknown {
   });
 }
 
+function normalizeAddTextsRequest(textsOrRequest: AddTextsInput): AddTextsRequest {
+  if (typeof textsOrRequest === 'string') return { texts: [textsOrRequest] };
+  return Array.isArray(textsOrRequest) ? { texts: textsOrRequest } : textsOrRequest;
+}
+
 function normalizeIngestSourceInput(request: IngestSourceInput): IngestSourceInput | { sourceId: string } {
   return typeof request === 'string' ? { sourceId: request } : request;
+}
+
+function defaultFileUploadSourceName(root?: string): string {
+  const label = root ? basename(root) || root : undefined;
+  return label ? `Local files: ${label}` : 'Local file upload';
+}
+
+function withCanonicalSourceId(request: IngestFilesystemRequest, sourceId: string): IngestFilesystemRequest {
+  const { sourceName: _sourceName, source: _source, sourceId: _sourceId, source_id: _sourceIdSnake, ...rest } = request;
+  return { ...rest, sourceId };
 }
 
 async function collectTextFiles(

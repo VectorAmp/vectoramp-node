@@ -28,7 +28,7 @@ export function googleDriveSource(input: string | GoogleDriveSourceOptions): Ing
 }
 
 export function fileUploadSource(input: FileUploadSourceOptions = {}): IngestionSourceInput {
-  return { ...input, source_type: 'file_upload' };
+  return { name: 'Local file upload', ...input, source_type: 'file_upload' };
 }
 
 export function genericSource(sourceType: SourceType | (string & {}), input: Record<string, unknown> = {}): IngestionSourceInput {

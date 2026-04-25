@@ -73,6 +73,8 @@ export interface SearchRequest {
   [key: string]: unknown;
 }
 
+export type SearchInput = string | number[] | SearchRequest;
+
 export interface SearchResult {
   id: string;
   score: number;
@@ -107,6 +109,8 @@ export interface AddTextsRequest {
   namespace?: string;
   [key: string]: unknown;
 }
+
+export type AddTextsInput = string | AddTextsRequest['texts'] | AddTextsRequest;
 
 export type SourceType = 's3' | 'web' | 'gdrive' | 'file_upload';
 
@@ -175,8 +179,28 @@ export interface IngestFile {
 export interface IngestFilesystemRequest {
   root?: string;
   files: IngestFile[];
+  /** Existing source id to attach to this ingestion. If omitted, the SDK creates a file_upload source. */
+  sourceId?: string;
+  source_id?: string;
+  /** Backward-compatible existing source id alias. */
+  source?: string;
+  /** Name to use when the SDK auto-creates a file_upload source. */
+  sourceName?: string;
   metadata?: JsonObject;
   [key: string]: unknown;
+}
+
+export interface IngestFilesystemOptions {
+  metadata?: JsonObject;
+  extensions?: string[];
+  maxBytesPerFile?: number;
+  /** Existing source id to attach to this ingestion. If omitted, the SDK creates a file_upload source. */
+  sourceId?: string;
+  source_id?: string;
+  /** Backward-compatible existing source id alias. */
+  source?: string;
+  /** Name to use when the SDK auto-creates a file_upload source. */
+  sourceName?: string;
 }
 
 export interface IngestionJob {

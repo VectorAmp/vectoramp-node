@@ -55,6 +55,19 @@ export class RestTransport implements Transport {
   }
 
   /**
+   * Send a REST request and return raw response bytes.
+   *
+   * @param method - HTTP method.
+   * @param path - API path under `apiPrefix`.
+   * @param options - Request options.
+   * @returns Raw response bytes.
+   */
+  async download(method: string, path: string, options: RequestOptions = {}): Promise<ArrayBuffer> {
+    const response = await this.fetchRaw(method, path, options);
+    return response.arrayBuffer();
+  }
+
+  /**
    * Send a streaming REST request and parse SSE events.
    *
    * @param method - HTTP method.

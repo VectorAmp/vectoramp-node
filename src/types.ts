@@ -39,16 +39,28 @@ export interface StreamRequestOptions extends RequestOptions {
 export interface Transport {
   /** Send a request and parse the response. */
   request<T>(method: string, path: string, options?: RequestOptions): Promise<T>;
+  /** Send a request and return raw response bytes, when supported by the transport. */
+  download?(method: string, path: string, options?: RequestOptions): Promise<ArrayBuffer>;
   /** Send a streaming request, when supported by the transport. */
   stream?(method: string, path: string, options?: StreamRequestOptions): AsyncIterable<unknown>;
 }
 
-/** Pagination parameters accepted by list endpoints. */
+/** Pagination parameters accepted by offset-based list endpoints. */
 export interface PaginationParams {
   /** Maximum records to return. Server default applies when omitted. */
   limit?: number;
   /** Number of records to skip. Server default applies when omitted. */
   offset?: number;
+}
+
+/** Cursor pagination and filtering for dataset document listing. */
+export interface DatasetDocumentListParams {
+  /** Maximum documents to return. Server default applies when omitted. */
+  limit?: number;
+  /** Cursor from a previous page's `nextCursor` / `next_cursor`. */
+  cursor?: string;
+  /** Optional document status filter, e.g. `ready`. */
+  status?: string;
 }
 
 /** Normalized SDK page shape returned by list helpers. */
@@ -61,8 +73,10 @@ export interface Page<T> {
   offset?: number;
   /** Total records available, when returned by the API. */
   total?: number;
-  /** Next offset, when returned by the API. */
+  /** Next offset, when returned by offset-paginated APIs. */
   nextOffset?: number | null;
+  /** Next cursor, when returned by cursor-paginated APIs. */
+  nextCursor?: string | null;
   /** Whether more records are available, when returned by the API. */
   hasMore?: boolean;
 }
@@ -77,6 +91,20 @@ export interface Dataset {
   dimension?: number;
   /** Dataset metadata. */
   metadata?: JsonObject;
+  /** Additional API fields. */
+  [key: string]: unknown;
+}
+
+/** Dataset source document returned by list documents endpoints. */
+export interface DatasetDocument {
+  /** Document identifier used for download. */
+  id: string;
+  /** Original filename or title, when available. */
+  file_name?: string;
+  /** Source type, e.g. `s3`, `gdrive`, or `file_upload`. */
+  source_type?: string;
+  /** Whether a retained original can be downloaded. */
+  download_available?: boolean;
   /** Additional API fields. */
   [key: string]: unknown;
 }

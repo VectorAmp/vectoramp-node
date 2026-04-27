@@ -226,3 +226,22 @@ npm run build
 ```
 
 CI runs typecheck, tests with coverage, and build on GitLab.
+
+## Dataset documents
+
+List retained source documents and download originals when available:
+
+```ts
+const page = await client.datasets.listDocuments('dataset_id', { limit: 50, cursor: undefined, status: 'ready' });
+for (const document of page.data) {
+  console.log(document.id, document.file_name);
+}
+
+const bytes = await client.datasets.downloadDocument('dataset_id', 'document_id');
+await writeFile('document.bin', Buffer.from(bytes));
+
+// Resource-style calls work too:
+const dataset = await client.datasets.get('dataset_id');
+await dataset.listDocuments();
+await dataset.downloadDocument('document_id');
+```

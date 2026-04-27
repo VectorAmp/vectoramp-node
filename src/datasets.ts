@@ -7,6 +7,8 @@ import type {
   AskResponse,
   CreateDatasetRequest,
   Dataset,
+  DatasetDocument,
+  DatasetDocumentListParams,
   IngestFile,
   IngestFilesystemOptions,
   IngestFilesystemRequest,
@@ -103,6 +105,26 @@ export class DatasetResource implements Dataset {
    */
   delete(): Promise<void> {
     return this.service.delete(this.id);
+  }
+
+  /**
+   * List source documents retained for this dataset.
+   *
+   * @param params - Optional cursor pagination params (`limit`, `cursor`, `status`).
+   * @returns A page of dataset document metadata.
+   */
+  listDocuments(params: DatasetDocumentListParams = {}): Promise<Page<DatasetDocument>> {
+    return this.service.listDocuments(this.id, params);
+  }
+
+  /**
+   * Download a retained source document as raw bytes.
+   *
+   * @param documentId - Document id returned by {@link listDocuments}.
+   * @returns Raw document bytes.
+   */
+  downloadDocument(documentId: string): Promise<ArrayBuffer> {
+    return this.service.downloadDocument(this.id, documentId);
   }
 
   /**
@@ -205,6 +227,30 @@ export class DatasetsClient {
    */
   delete(id: string): Promise<void> {
     return this.transport.request<void>('DELETE', datasetPath(id));
+  }
+
+  /**
+   * List source documents retained for a dataset.
+   *
+   * @param id - Dataset id.
+   * @param params - Optional cursor pagination params (`limit`, `cursor`, `status`).
+   * @returns A page of document metadata.
+   */
+  async listDocuments(id: string, params: DatasetDocumentListParams = {}): Promise<Page<DatasetDocument>> {
+    const payload = await this.transport.request<unknown>('GET', `${datasetPath(id)}/documents`, { query: { ...params } });
+    return normalizePage<DatasetDocument>(payload, { limit: params.limit }, 'documents');
+  }
+
+  /**
+   * Download a retained source document as raw bytes.
+   *
+   * @param id - Dataset id.
+   * @param documentId - Document id returned by {@link listDocuments}.
+   * @returns Raw document bytes.
+   */
+  downloadDocument(id: string, documentId: string): Promise<ArrayBuffer> {
+    if (!this.transport.download) throw new Error('transport does not support raw downloads');
+    return this.transport.download('GET', `${datasetPath(id)}/documents/${encodeURIComponent(documentId)}/download`);
   }
 
   /**

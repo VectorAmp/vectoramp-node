@@ -29,14 +29,16 @@ export function camelToSnake(value: string): string {
   return value.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
 }
 
-export function normalizePage<T>(payload: unknown, params?: { limit?: number; offset?: number }): Page<T> {
+export function normalizePage<T>(payload: unknown, params?: { limit?: number; offset?: number }, collectionKey?: string): Page<T> {
   if (Array.isArray(payload)) {
     return { data: payload as T[], limit: params?.limit, offset: params?.offset };
   }
 
   const object = (payload ?? {}) as Record<string, unknown>;
-  const data = (object.data ?? object.items ?? object.datasets ?? object.results ?? []) as T[];
+  const keyedData = collectionKey ? object[collectionKey] : undefined;
+  const data = (keyedData ?? object.data ?? object.items ?? object.datasets ?? object.results ?? []) as T[];
   const nextOffset = object.nextOffset ?? object.next_offset;
+  const nextCursor = object.nextCursor ?? object.next_cursor;
   const hasMore = object.hasMore ?? object.has_more;
 
   return {
@@ -45,6 +47,7 @@ export function normalizePage<T>(payload: unknown, params?: { limit?: number; of
     offset: (object.offset as number | undefined) ?? params?.offset,
     total: object.total as number | undefined,
     nextOffset: (nextOffset as number | null | undefined) ?? undefined,
+    nextCursor: (nextCursor as string | null | undefined) ?? undefined,
     hasMore: hasMore as boolean | undefined
   };
 }

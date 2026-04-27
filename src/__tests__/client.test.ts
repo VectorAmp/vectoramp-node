@@ -104,6 +104,35 @@ describe('VectorAmp client', () => {
     expect(JSON.parse(fetchMock.mock.calls[4][1].body as string)).toEqual({ texts: ['alpha'] });
   });
 
+  it('lists and downloads dataset source documents', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ documents: [{ id: 'doc_1', file_name: 'a.md' }], next_cursor: 'doc_1' }))
+      .mockResolvedValueOnce(new Response('hello', { status: 200, headers: { 'content-type': 'text/markdown' } }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'ds' }))
+      .mockResolvedValueOnce(jsonResponse({ documents: [{ id: 'doc_2' }], total: 1 }))
+      .mockResolvedValueOnce(new Response('world', { status: 200 }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    const page = await client.datasets.listDocuments('ds', { limit: 10, cursor: 'doc_0', status: 'ready' });
+    expect(page.data).toEqual([{ id: 'doc_1', file_name: 'a.md' }]);
+    expect(page.nextCursor).toBe('doc_1');
+    await expect(client.datasets.downloadDocument('ds', 'doc_1')).resolves.toBeInstanceOf(ArrayBuffer);
+
+    const dataset = await client.datasets.get('ds');
+    await expect(dataset.listDocuments()).resolves.toMatchObject({ data: [{ id: 'doc_2' }] });
+    const bytes = await dataset.downloadDocument('doc_2');
+    expect(new TextDecoder().decode(bytes)).toBe('world');
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      'https://api.vectoramp.com/api/v1/datasets/ds/documents?limit=10&cursor=doc_0&status=ready',
+      'https://api.vectoramp.com/api/v1/datasets/ds/documents/doc_1/download',
+      'https://api.vectoramp.com/api/v1/datasets/ds',
+      'https://api.vectoramp.com/api/v1/datasets/ds/documents',
+      'https://api.vectoramp.com/api/v1/datasets/ds/documents/doc_2/download'
+    ]);
+  });
+
   it('returns dataset resources with instance methods that delegate to services', async () => {
     const fetchMock = vi
       .fn()

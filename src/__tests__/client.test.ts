@@ -6,9 +6,11 @@ import {
   DatasetResource,
   VectorAmp,
   VectorAmpError,
+  confluenceSource,
   fileUploadSource,
   genericSource,
   googleDriveSource,
+  jiraSource,
   s3Source,
   webSource,
   type SourceCreateInput,
@@ -74,7 +76,12 @@ describe('VectorAmp client', () => {
     expect(dataset).toMatchObject({ id: 'ds_1', index_type: 'sable' });
 
     const request = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1];
-    expect(JSON.parse(request.body as string)).toEqual({ name: 'docs', dimension: 768, index_type: 'sable' });
+    expect(JSON.parse(request.body as string)).toEqual({
+      name: 'docs',
+      dimension: 768,
+      embedding: { provider: 'vectoramp', model: 'VectorAmp-Embedding-2560' },
+      index_type: 'sable'
+    });
   });
 
   it('gets, deletes, searches, inserts vectors, and adds texts with simple dataset UX', async () => {
@@ -232,6 +239,8 @@ describe('VectorAmp client', () => {
       .mockResolvedValueOnce(jsonResponse({ id: 'src_s3', source_type: 's3' }, { status: 201 }))
       .mockResolvedValueOnce(jsonResponse({ id: 'src_gdrive', source_type: 'gdrive' }, { status: 201 }))
       .mockResolvedValueOnce(jsonResponse({ id: 'src_upload', source_type: 'file_upload' }, { status: 201 }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'src_jira', source_type: 'jira' }, { status: 201 }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'src_confluence', source_type: 'confluence' }, { status: 201 }))
       .mockResolvedValueOnce(jsonResponse({ id: 'job_inline' }));
     const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
 
@@ -239,15 +248,21 @@ describe('VectorAmp client', () => {
     expect(s3Source('s3://bucket/docs')).toEqual({ source_type: 's3', uri: 's3://bucket/docs' });
     expect(googleDriveSource({ folderId: 'folder_1' })).toEqual({ source_type: 'gdrive', folderId: 'folder_1' });
     expect(fileUploadSource({ fileIds: ['file_1'] })).toEqual({ source_type: 'file_upload', name: 'Local file upload', fileIds: ['file_1'] });
+    expect(jiraSource({ cloudId: 'cloud_1', projectKeys: ['ENG'] })).toEqual({ source_type: 'jira', cloudId: 'cloud_1', projectKeys: ['ENG'] });
+    expect(confluenceSource({ cloudId: 'cloud_1', spaceKeys: ['DOCS'] })).toEqual({ source_type: 'confluence', cloudId: 'cloud_1', spaceKeys: ['DOCS'] });
     expect(genericSource('custom_source', { uri: 'custom://source' })).toEqual({ source_type: 'custom_source', uri: 'custom://source' });
 
     await expect(client.sources.createWeb({ url: 'https://example.com/docs', config: { maxDepth: 2 } })).resolves.toMatchObject({ id: 'src_web' });
     await expect(client.sources.createS3({ uri: 's3://bucket/docs', region: 'us-east-1' })).resolves.toMatchObject({ id: 'src_s3' });
     await expect(client.sources.createGoogleDrive({ folderId: 'folder_1' })).resolves.toMatchObject({ id: 'src_gdrive' });
     await expect(client.sources.createFileUpload({ fileIds: ['file_1'] })).resolves.toMatchObject({ id: 'src_upload' });
+    await expect(client.sources.createJira({ cloudId: 'cloud_1', accessToken: 'token', projectKeys: ['ENG'] })).resolves.toMatchObject({ id: 'src_jira' });
+    await expect(client.sources.createConfluence({ cloudId: 'cloud_1', accessToken: 'token', spaceKeys: ['DOCS'] })).resolves.toMatchObject({ id: 'src_confluence' });
     await expect(client.datasets.ingestSource('ds', typedWeb)).resolves.toEqual({ id: 'job_inline' });
 
     expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      'https://api.vectoramp.com/api/v1/ingestion/sources',
+      'https://api.vectoramp.com/api/v1/ingestion/sources',
       'https://api.vectoramp.com/api/v1/ingestion/sources',
       'https://api.vectoramp.com/api/v1/ingestion/sources',
       'https://api.vectoramp.com/api/v1/ingestion/sources',
@@ -262,7 +277,9 @@ describe('VectorAmp client', () => {
     expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ source_type: 's3', uri: 's3://bucket/docs', region: 'us-east-1' });
     expect(JSON.parse(fetchMock.mock.calls[2][1].body as string)).toEqual({ source_type: 'gdrive', folder_id: 'folder_1' });
     expect(JSON.parse(fetchMock.mock.calls[3][1].body as string)).toEqual({ source_type: 'file_upload', name: 'Local file upload', file_ids: ['file_1'] });
-    expect(JSON.parse(fetchMock.mock.calls[4][1].body as string)).toEqual({
+    expect(JSON.parse(fetchMock.mock.calls[4][1].body as string)).toEqual({ source_type: 'jira', cloud_id: 'cloud_1', access_token: 'token', project_keys: ['ENG'] });
+    expect(JSON.parse(fetchMock.mock.calls[5][1].body as string)).toEqual({ source_type: 'confluence', cloud_id: 'cloud_1', access_token: 'token', space_keys: ['DOCS'] });
+    expect(JSON.parse(fetchMock.mock.calls[6][1].body as string)).toEqual({
       source_type: 'web',
       uri: 'https://example.com/docs',
       config: { max_depth: 2 }

@@ -24,6 +24,8 @@ import type {
 import { normalizePage, toSnakeCasePayload } from './utils.js';
 
 const TEXT_EXTENSIONS = new Set(['.txt', '.md', '.mdx', '.json', '.jsonl', '.csv', '.tsv', '.html', '.xml', '.yaml', '.yml']);
+const DEFAULT_EMBEDDING_PROVIDER = 'vectoramp';
+const DEFAULT_EMBEDDING_MODEL = 'VectorAmp-Embedding-2560';
 
 /** Minimal client context used by dataset resource helpers that call Intelligence. */
 export interface DatasetClientContext {
@@ -213,8 +215,14 @@ export class DatasetsClient {
       indexType?: never;
     };
 
+    const embedding = {
+      provider: safeRequest.embeddingProvider ?? safeRequest.embedding_provider ?? safeRequest.embedding?.provider ?? DEFAULT_EMBEDDING_PROVIDER,
+      model: safeRequest.embeddingModel ?? safeRequest.embedding_model ?? safeRequest.embedding?.model ?? DEFAULT_EMBEDDING_MODEL,
+      ...(safeRequest.embedding ?? {})
+    };
+
     const dataset = await this.transport.request<Dataset>('POST', '/datasets', {
-      body: toSnakeCasePayload({ ...safeRequest, indexType: 'sable' })
+      body: toSnakeCasePayload({ ...safeRequest, embedding, indexType: 'sable' })
     });
     return this.toResource(dataset);
   }

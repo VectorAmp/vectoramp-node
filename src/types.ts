@@ -117,8 +117,16 @@ export interface CreateDatasetRequest {
   dimension?: number;
   /** Dataset description. */
   description?: string;
-  /** Embedding model to use for text ingestion/querying. */
+  /** Embedding provider. Defaults to `vectoramp`. */
+  embeddingProvider?: string;
+  /** Embedding provider in snake_case. Defaults to `vectoramp`. */
+  embedding_provider?: string;
+  /** Embedding model to use for text ingestion/querying. Defaults to `VectorAmp-Embedding-2560`. */
   embeddingModel?: string;
+  /** Embedding model in snake_case. Defaults to `VectorAmp-Embedding-2560`. */
+  embedding_model?: string;
+  /** Nested embedding config accepted by the API. */
+  embedding?: { provider?: string; model?: string; [key: string]: unknown };
   /** User metadata stored with the dataset. */
   metadata?: JsonObject;
   /** Additional API fields. `indexType`/`index_type` are ignored; the SDK always creates SABLE datasets. */
@@ -212,7 +220,7 @@ export interface AddTextsRequest {
 export type AddTextsInput = string | AddTextsRequest['texts'] | AddTextsRequest;
 
 /** Built-in ingestion source types. */
-export type SourceType = 's3' | 'web' | 'gdrive' | 'file_upload';
+export type SourceType = 's3' | 'web' | 'gdrive' | 'file_upload' | 'jira' | 'confluence';
 
 /** Shared source creation options. */
 export interface BaseSourceOptions {
@@ -256,6 +264,28 @@ export interface GoogleDriveSourceOptions extends BaseSourceOptions {
 export interface FileUploadSourceOptions extends BaseSourceOptions {
   /** Optional uploaded file ids. */
   fileIds?: string[];
+}
+
+/** Jira source options. */
+export interface JiraSourceOptions extends BaseSourceOptions {
+  /** Atlassian cloud id returned by OAuth accessible-resources. */
+  cloudId?: string;
+  /** OAuth access token for Atlassian APIs. */
+  accessToken?: string;
+  /** Jira project keys to ingest. */
+  projectKeys?: string[];
+  /** Optional JQL filter. */
+  jql?: string;
+}
+
+/** Confluence source options. */
+export interface ConfluenceSourceOptions extends BaseSourceOptions {
+  /** Atlassian cloud id returned by OAuth accessible-resources. */
+  cloudId?: string;
+  /** OAuth access token for Atlassian APIs. */
+  accessToken?: string;
+  /** Confluence space keys to ingest. */
+  spaceKeys?: string[];
 }
 
 /** Source creation payload with a required source type. */

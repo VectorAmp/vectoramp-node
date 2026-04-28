@@ -1,8 +1,10 @@
 import type {
+  ConfluenceSourceOptions,
   FileUploadSourceOptions,
   GoogleDriveSourceOptions,
   IngestionSource,
   IngestionSourceInput,
+  JiraSourceOptions,
   S3SourceOptions,
   SourceCreateInput,
   SourceType,
@@ -53,6 +55,26 @@ export function googleDriveSource(input: string | GoogleDriveSourceOptions): Ing
  */
 export function fileUploadSource(input: FileUploadSourceOptions = {}): IngestionSourceInput {
   return { name: 'Local file upload', ...input, source_type: 'file_upload' };
+}
+
+/**
+ * Build a Jira ingestion source payload.
+ *
+ * @param input - Jira source options, usually populated from the Atlassian browser OAuth flow.
+ * @returns Source creation input with `source_type: "jira"`.
+ */
+export function jiraSource(input: JiraSourceOptions): IngestionSourceInput {
+  return { ...input, source_type: 'jira' };
+}
+
+/**
+ * Build a Confluence ingestion source payload.
+ *
+ * @param input - Confluence source options, usually populated from the Atlassian browser OAuth flow.
+ * @returns Source creation input with `source_type: "confluence"`.
+ */
+export function confluenceSource(input: ConfluenceSourceOptions): IngestionSourceInput {
+  return { ...input, source_type: 'confluence' };
 }
 
 /**
@@ -120,5 +142,25 @@ export class SourcesClient {
    */
   createFileUpload(input: FileUploadSourceOptions = {}): Promise<IngestionSource> {
     return this.create(fileUploadSource(input));
+  }
+
+  /**
+   * Create a Jira ingestion source.
+   *
+   * @param input - Jira source options.
+   * @returns The created source.
+   */
+  createJira(input: JiraSourceOptions): Promise<IngestionSource> {
+    return this.create(jiraSource(input));
+  }
+
+  /**
+   * Create a Confluence ingestion source.
+   *
+   * @param input - Confluence source options.
+   * @returns The created source.
+   */
+  createConfluence(input: ConfluenceSourceOptions): Promise<IngestionSource> {
+    return this.create(confluenceSource(input));
   }
 }

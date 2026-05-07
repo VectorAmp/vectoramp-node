@@ -141,6 +141,14 @@ export interface SearchRequest {
   query?: number[];
   /** Natural-language query text. */
   queryText?: string;
+  /** Alias for `queryText` for single-field hybrid/BM25 UX. */
+  searchText?: string;
+  /** Optional explicit hybrid dense+sparse toggle. When omitted, dataset settings apply. */
+  hybrid?: boolean;
+  /** Optional explicit sparse query. When omitted for hybrid text search, the API reuses the text query. */
+  sparseQuery?: string;
+  /** Dense/sparse weighting for hybrid search. When omitted, dataset settings apply. */
+  alpha?: number;
   /** Maximum number of nearest neighbors. Server default applies when omitted. */
   topK?: number;
   /** Metadata filter evaluated by the API. */

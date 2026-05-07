@@ -111,6 +111,21 @@ describe('VectorAmp client', () => {
     expect(JSON.parse(fetchMock.mock.calls[4][1].body as string)).toEqual({ texts: ['alpha'] });
   });
 
+  it('normalizes single-field hybrid search aliases', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ results: [] }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    await client.datasets.search('ds', { searchText: 'bm25 plus dense', topK: 3, hybrid: true, alpha: 0.7 });
+
+    const request = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(request.body as string)).toEqual({
+      query_text: 'bm25 plus dense',
+      top_k: 3,
+      hybrid: true,
+      alpha: 0.7
+    });
+  });
+
   it('lists and downloads dataset source documents', async () => {
     const fetchMock = vi
       .fn()

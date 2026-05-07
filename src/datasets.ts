@@ -373,11 +373,11 @@ function normalizeSearchRequest(request: SearchInput): unknown {
   if (typeof request === 'string') return { query_text: request };
   if (Array.isArray(request)) return { query: request };
 
-  const { vector, query, queryText, topK, includeVectors, includeMetadata, ...rest } = request;
+  const { vector, query, queryText, searchText, topK, includeVectors, includeMetadata, ...rest } = request;
   return toSnakeCasePayload({
     ...rest,
     query: query ?? vector,
-    queryText,
+    queryText: queryText ?? searchText,
     topK,
     includeVectors,
     includeMetadata

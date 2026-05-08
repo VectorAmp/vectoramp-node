@@ -121,7 +121,7 @@ await client.datasets.search(dataset.id, [0.1, 0.2, 0.3]);
 
 ## Ingestion
 
-Source builders keep ingestion payloads typed while matching the REST `source_type` contract (`s3`, `web`, `gdrive`, `file_upload`).
+Source builders keep ingestion payloads typed while matching the REST `source_type` contract (`s3`, `web`, `gcs`, `gdrive`, `file_upload`, `jira`, `confluence`).
 
 ```ts
 import { s3Source, webSource } from '@vectoramp/vectoramp';

@@ -1,6 +1,7 @@
 import type {
   ConfluenceSourceOptions,
   FileUploadSourceOptions,
+  GcsSourceOptions,
   GoogleDriveSourceOptions,
   IngestionSource,
   IngestionSourceInput,
@@ -37,6 +38,17 @@ export function s3Source(input: string | S3SourceOptions): IngestionSourceInput 
 }
 
 /**
+ * Build a Google Cloud Storage ingestion source payload.
+ *
+ * @param input - GCS URI string or GCS source options.
+ * @returns Source creation input with `source_type: "gcs"`.
+ */
+export function gcsSource(input: string | GcsSourceOptions): IngestionSourceInput {
+  if (typeof input === 'string') return { source_type: 'gcs', uri: input };
+  return { ...input, source_type: 'gcs' };
+}
+
+/**
  * Build a Google Drive ingestion source payload.
  *
  * @param input - Drive URI/id string or Google Drive source options.
@@ -64,7 +76,7 @@ export function fileUploadSource(input: FileUploadSourceOptions = {}): Ingestion
  * @returns Source creation input with `source_type: "jira"`.
  */
 export function jiraSource(input: JiraSourceOptions): IngestionSourceInput {
-  return { ...input, source_type: 'jira' };
+  return { includeComments: true, ...input, source_type: 'jira' };
 }
 
 /**
@@ -122,6 +134,16 @@ export class SourcesClient {
    */
   createS3(input: string | S3SourceOptions): Promise<IngestionSource> {
     return this.create(s3Source(input));
+  }
+
+  /**
+   * Create a Google Cloud Storage ingestion source.
+   *
+   * @param input - GCS URI string or GCS source options.
+   * @returns The created source.
+   */
+  createGcs(input: string | GcsSourceOptions): Promise<IngestionSource> {
+    return this.create(gcsSource(input));
   }
 
   /**

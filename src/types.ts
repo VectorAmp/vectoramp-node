@@ -228,7 +228,7 @@ export interface AddTextsRequest {
 export type AddTextsInput = string | AddTextsRequest['texts'] | AddTextsRequest;
 
 /** Built-in ingestion source types. */
-export type SourceType = 's3' | 'web' | 'gdrive' | 'file_upload' | 'jira' | 'confluence';
+export type SourceType = 's3' | 'web' | 'gcs' | 'gdrive' | 'file_upload' | 'jira' | 'confluence';
 
 /** Shared source creation options. */
 export interface BaseSourceOptions {
@@ -248,6 +248,10 @@ export interface BaseSourceOptions {
 export interface WebSourceOptions extends BaseSourceOptions {
   /** Web URL. Alias for `uri`; `uri` wins if both are set. */
   url?: string;
+  /** Include linked/static page assets when ingesting pages. */
+  includeAssets?: boolean;
+  /** Maximum assets to retain per page. */
+  maxAssetsPerPage?: number;
 }
 
 /** S3 source options. */
@@ -258,6 +262,16 @@ export interface S3SourceOptions extends BaseSourceOptions {
   prefix?: string;
   /** Optional AWS region. */
   region?: string;
+}
+
+/** Google Cloud Storage source options. */
+export interface GcsSourceOptions extends BaseSourceOptions {
+  /** GCS bucket name. */
+  bucket?: string;
+  /** Optional object prefix. */
+  prefix?: string;
+  /** Optional Google Cloud project id. */
+  projectId?: string;
 }
 
 /** Google Drive source options. */
@@ -284,6 +298,8 @@ export interface JiraSourceOptions extends BaseSourceOptions {
   projectKeys?: string[];
   /** Optional JQL filter. */
   jql?: string;
+  /** Include issue comments. Defaults to true in SDK helpers. */
+  includeComments?: boolean;
 }
 
 /** Confluence source options. */

@@ -1,5 +1,6 @@
 import { DatasetsClient } from './datasets.js';
 import { IntelligenceClient } from './intelligence.js';
+import { IngestionClient } from './ingestion.js';
 import { SourcesClient } from './sources.js';
 import { RestTransport } from './transport.js';
 import type { AskRequest, AskResponse, StreamEvent, Transport, VectorAmpClientOptions } from './types.js';
@@ -17,6 +18,8 @@ export class VectorAmpClient {
   readonly intelligence: IntelligenceClient;
   /** Ingestion source creation helpers. */
   readonly sources: SourcesClient;
+  /** Ingestion job management helpers. */
+  readonly ingestion: IngestionClient;
   /** Transport used by all sub-clients. */
   readonly transport: Transport;
 
@@ -36,6 +39,7 @@ export class VectorAmpClient {
 
     this.intelligence = new IntelligenceClient(this.transport);
     this.sources = new SourcesClient(this.transport);
+    this.ingestion = new IngestionClient(this.transport);
     this.datasets = new DatasetsClient(this.transport, { client: this });
   }
 

@@ -67,6 +67,17 @@ describe('VectorAmp client', () => {
     expect(page.data[0]).toMatchObject({ id: 'a' });
   });
 
+  it('retries eligible ingestion jobs', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ job_id: 'job_2', status: 'pending' }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    await expect(client.ingestion.retryJob('job_1')).resolves.toEqual({ job_id: 'job_2', status: 'pending' });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.vectoramp.com/api/v1/ingestion/jobs/job_1/retry',
+      expect.objectContaining({ method: 'POST' })
+    );
+  });
+
   it('forces SABLE when creating datasets and ignores caller-provided index type', async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ id: 'ds_1', index_type: 'sable' }, { status: 201 }));
     const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });

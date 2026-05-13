@@ -1,5 +1,8 @@
 # VectorAmp Node SDK
 
+[![pipeline status](https://gitlab.com/VectorAmp/SDK/Node/badges/main/pipeline.svg)](https://gitlab.com/VectorAmp/SDK/Node/-/commits/main)
+[![coverage report](https://gitlab.com/VectorAmp/SDK/Node/badges/main/coverage.svg)](https://gitlab.com/VectorAmp/SDK/Node/-/commits/main)
+
 Official TypeScript/JavaScript SDK for VectorAmp.
 
 - Default API origin: `https://api.vectoramp.com`

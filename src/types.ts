@@ -420,6 +420,84 @@ export interface IngestionJob {
   [key: string]: unknown;
 }
 
+/** Ingestion schedule returned by the API. */
+export interface Schedule {
+  /** Schedule id. */
+  id?: string;
+  /** Organization id. */
+  organizationId?: string;
+  /** Source id the schedule pulls from. */
+  sourceId?: string;
+  /** Dataset id the schedule writes into. */
+  datasetId?: string;
+  /** Pipeline id used for each run. Omit/`default_pipeline` for default. */
+  pipelineId?: string;
+  /** Cron expression. */
+  cron?: string;
+  /** IANA timezone (e.g. `UTC`, `America/Los_Angeles`). */
+  timezone?: string;
+  /** Whether the scheduler will fire this schedule. */
+  enabled?: boolean;
+  /** Next scheduled run, ISO-8601. */
+  nextRunAt?: string;
+  /** Last completed run, ISO-8601. */
+  lastRunAt?: string;
+  /** Optional metadata blob. */
+  metadata?: Record<string, unknown>;
+  /** Additional API fields. */
+  [key: string]: unknown;
+}
+
+/** Schedule creation request. */
+export interface ScheduleCreateInput {
+  /** Source id to ingest from. */
+  sourceId: string;
+  /** Dataset id to ingest into. */
+  datasetId: string;
+  /** Cron expression (5-field). */
+  cron: string;
+  /** Optional IANA timezone. Defaults to `UTC` on the server. */
+  timezone?: string;
+  /** Pipeline id. Omit to use the default ingestion pipeline. */
+  pipelineId?: string;
+  /** Whether the schedule should fire when created. Defaults to true on the server. */
+  enabled?: boolean;
+  /** Optional human-readable name. */
+  name?: string;
+  /** Optional metadata blob. */
+  metadata?: Record<string, unknown>;
+  /** Additional API fields. */
+  [key: string]: unknown;
+}
+
+/** Schedule update request. All fields are optional. */
+export type ScheduleUpdateInput = Partial<ScheduleCreateInput> & {
+  /** Pause/resume the schedule. */
+  enabled?: boolean;
+  /** Additional API fields. */
+  [key: string]: unknown;
+};
+
+/** Paginated list response shape returned by the schedules list endpoint. */
+export interface ScheduleListResponse {
+  /** Schedule records. */
+  schedules: Schedule[];
+  /** Total matching schedules. */
+  total?: number;
+  /** Page limit echoed by the server. */
+  limit?: number;
+  /** Page offset echoed by the server. */
+  offset?: number;
+}
+
+/** Response returned when an immediate schedule run is requested. */
+export interface ScheduleTriggerResponse {
+  /** New ingestion job id created for the run. */
+  jobId?: string;
+  /** Additional API fields. */
+  [key: string]: unknown;
+}
+
 /** Request to ask VectorAmp Intelligence. */
 export interface AskRequest {
   /** Natural-language question. */

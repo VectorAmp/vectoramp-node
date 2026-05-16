@@ -397,6 +397,68 @@ describe('VectorAmp client', () => {
     expect(events).toEqual([{ id: '1', retry: 1000, event: 'done', data: '[DONE]' }]);
   });
 
+  it('exposes ingestion schedules with the full CRUD + trigger surface', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          schedules: [{ id: 'sch_1', cron: '0 * * * *', enabled: true }],
+          total: 1,
+          limit: 10,
+          offset: 0
+        })
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: 'sch_1', cron: '0 * * * *' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'sch_2', cron: '0 0 * * *' }, { status: 201 }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'sch_2', cron: '0 0 * * *', enabled: false }))
+      .mockResolvedValueOnce(jsonResponse({ deleted: true }, { status: 200 }))
+      .mockResolvedValueOnce(jsonResponse({ jobId: 'job_42' }, { status: 202 }));
+
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    const page = await client.schedules.list({ limit: 10, offset: 0 });
+    expect(page).toMatchObject({ total: 1, limit: 10, offset: 0 });
+    expect(page.data).toEqual([{ id: 'sch_1', cron: '0 * * * *', enabled: true }]);
+
+    await expect(client.schedules.get('sch_1')).resolves.toMatchObject({ id: 'sch_1' });
+
+    const created = await client.schedules.create({
+      sourceId: 'src_1',
+      datasetId: 'ds_1',
+      cron: '0 0 * * *',
+      timezone: 'UTC'
+    });
+    expect(created).toMatchObject({ id: 'sch_2' });
+    const createBody = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[2][1].body as string;
+    expect(JSON.parse(createBody)).toEqual({
+      source_id: 'src_1',
+      dataset_id: 'ds_1',
+      cron: '0 0 * * *',
+      timezone: 'UTC'
+    });
+
+    await expect(client.schedules.update('sch_2', { enabled: false })).resolves.toMatchObject({ enabled: false });
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      'https://api.vectoramp.com/api/v1/ingestion/schedules/sch_2',
+      expect.objectContaining({ method: 'PATCH' })
+    );
+
+    await expect(client.schedules.delete('sch_2')).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
+      'https://api.vectoramp.com/api/v1/ingestion/schedules/sch_2',
+      expect.objectContaining({ method: 'DELETE' })
+    );
+
+    await expect(client.schedules.trigger('sch_1')).resolves.toEqual({ jobId: 'job_42' });
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      6,
+      'https://api.vectoramp.com/api/v1/ingestion/schedules/sch_1/trigger',
+      expect.objectContaining({ method: 'POST' })
+    );
+  });
+
   it('can be constructed with a future non-REST transport', async () => {
     const calls: unknown[][] = [];
     const transport: Transport = {

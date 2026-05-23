@@ -121,9 +121,9 @@ export interface CreateDatasetRequest {
   embeddingProvider?: string;
   /** Embedding provider in snake_case. Defaults to `vectoramp`. */
   embedding_provider?: string;
-  /** Embedding model to use for text ingestion/querying. Defaults to `VectorAmp-Embedding-2560`. */
+  /** Embedding model to use for text ingestion/querying. Defaults to `VectorAmp-Embedding-4B`. */
   embeddingModel?: string;
-  /** Embedding model in snake_case. Defaults to `VectorAmp-Embedding-2560`. */
+  /** Embedding model in snake_case. Defaults to `VectorAmp-Embedding-4B`. */
   embedding_model?: string;
   /** Nested embedding config accepted by the API. */
   embedding?: { provider?: string; model?: string; [key: string]: unknown };

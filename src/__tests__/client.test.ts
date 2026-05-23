@@ -91,7 +91,7 @@ describe('VectorAmp client', () => {
     expect(JSON.parse(request.body as string)).toEqual({
       name: 'docs',
       dimension: 768,
-      embedding: { provider: 'vectoramp', model: 'VectorAmp-Embedding-2560' },
+      embedding: { provider: 'vectoramp', model: 'VectorAmp-Embedding-4B' },
       index_type: 'sable'
     });
   });

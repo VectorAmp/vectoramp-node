@@ -25,7 +25,7 @@ import { normalizePage, toSnakeCasePayload } from './utils.js';
 
 const TEXT_EXTENSIONS = new Set(['.txt', '.md', '.mdx', '.json', '.jsonl', '.csv', '.tsv', '.html', '.xml', '.yaml', '.yml']);
 const DEFAULT_EMBEDDING_PROVIDER = 'vectoramp';
-const DEFAULT_EMBEDDING_MODEL = 'VectorAmp-Embedding-2560';
+const DEFAULT_EMBEDDING_MODEL = 'VectorAmp-Embedding-4B';
 
 /** Minimal client context used by dataset resource helpers that call Intelligence. */
 export interface DatasetClientContext {

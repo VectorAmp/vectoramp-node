@@ -14,6 +14,7 @@ import {
   jiraSource,
   s3Source,
   webSource,
+  openai,
   type SourceCreateInput,
   type Transport
 } from '../index.js';
@@ -92,6 +93,21 @@ describe('VectorAmp client', () => {
       name: 'docs',
       dimension: 768,
       embedding: { provider: 'vectoramp', model: 'VectorAmp-Embedding-4B' },
+      index_type: 'sable'
+    });
+  });
+
+  it('creates OpenAI embedding datasets with the short helper', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ id: 'ds_openai', index_type: 'sable' }, { status: 201 }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    await client.datasets.create({ name: 'openai-docs', embedding: openai('large') });
+
+    const request = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    expect(JSON.parse(request.body as string)).toEqual({
+      name: 'openai-docs',
+      dimension: 3072,
+      embedding: { provider: 'openai', model: 'text-embedding-3-large', secret_ref: 'emb:openai:api_key' },
       index_type: 'sable'
     });
   });

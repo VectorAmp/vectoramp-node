@@ -1,3 +1,5 @@
+import type { EmbeddingConfig } from './embeddings.js';
+
 /** JSON object used for metadata, config, and filters. */
 export type JsonObject = Record<string, unknown>;
 
@@ -113,8 +115,10 @@ export interface DatasetDocument {
 export interface CreateDatasetRequest {
   /** Human-readable dataset name. */
   name: string;
-  /** Vector dimension, when creating a dataset for direct vector insertion. */
+  /** Vector dimension, inferred for built-in embedding helpers when omitted. */
   dimension?: number;
+  /** Vector dimension in snake_case/API style, inferred for built-in embedding helpers when omitted. */
+  dim?: number;
   /** Dataset description. */
   description?: string;
   /** Embedding provider. Defaults to `vectoramp`. */
@@ -125,8 +129,8 @@ export interface CreateDatasetRequest {
   embeddingModel?: string;
   /** Embedding model in snake_case. Defaults to `VectorAmp-Embedding-4B`. */
   embedding_model?: string;
-  /** Nested embedding config accepted by the API. */
-  embedding?: { provider?: string; model?: string; [key: string]: unknown };
+  /** Nested embedding config accepted by the API. Use `openai('small')` or `openai('large')` for OpenAI BYOM. */
+  embedding?: Partial<EmbeddingConfig> & { [key: string]: unknown };
   /** User metadata stored with the dataset. */
   metadata?: JsonObject;
   /** Additional API fields. `indexType`/`index_type` are ignored; the SDK always creates SABLE datasets. */

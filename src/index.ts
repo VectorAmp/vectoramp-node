@@ -1,5 +1,13 @@
 export { VectorAmpClient, VectorAmpClient as VectorAmp, createClient, DEFAULT_API_PREFIX, DEFAULT_BASE_URL } from './client.js';
 export { DatasetResource, DatasetsClient } from './datasets.js';
+export {
+  embeddings,
+  embeddingDimensions,
+  openai,
+  OPENAI_TEXT_EMBEDDING_3_LARGE,
+  OPENAI_TEXT_EMBEDDING_3_SMALL,
+  VECTORAMP_EMBEDDING_4B
+} from './embeddings.js';
 export { IntelligenceClient } from './intelligence.js';
 export { IngestionClient } from './ingestion.js';
 export { SchedulesClient } from './schedules.js';

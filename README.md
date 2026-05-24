@@ -19,13 +19,13 @@ npm install @vectoramp/vectoramp
 ## Quick start
 
 ```ts
-import { VectorAmp } from '@vectoramp/vectoramp';
+import { VectorAmp, openai } from '@vectoramp/vectoramp';
 
 const client = new VectorAmp({ apiKey: process.env.VECTORAMP_API_KEY });
 
 const dataset = await client.datasets.create({
   name: 'docs',
-  dimension: 768,
+  embedding: openai('small'), // or openai('large')
   metadata: { app: 'support-bot' }
 });
 
@@ -42,7 +42,7 @@ const results = await dataset.search({
 console.log(results.results);
 ```
 
-Dataset creation always requests SABLE under the hood. The SDK intentionally does **not** expose an `index_type` option.
+Dataset creation always requests SABLE under the hood. The SDK intentionally does **not** expose an `index_type` option. Built-in helpers infer dimensions for VectorAmp 4B and OpenAI `text-embedding-3-small`/`text-embedding-3-large`; pass `dimension` only for custom models.
 
 ## Configuration
 

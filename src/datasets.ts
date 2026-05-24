@@ -21,11 +21,12 @@ import type {
   SearchResponse,
   Transport
 } from './types.js';
+import { embeddingDimensions, VECTORAMP_EMBEDDING_4B } from './embeddings.js';
 import { normalizePage, toSnakeCasePayload } from './utils.js';
 
 const TEXT_EXTENSIONS = new Set(['.txt', '.md', '.mdx', '.json', '.jsonl', '.csv', '.tsv', '.html', '.xml', '.yaml', '.yml']);
 const DEFAULT_EMBEDDING_PROVIDER = 'vectoramp';
-const DEFAULT_EMBEDDING_MODEL = 'VectorAmp-Embedding-4B';
+const DEFAULT_EMBEDDING_MODEL = VECTORAMP_EMBEDDING_4B;
 
 /** Minimal client context used by dataset resource helpers that call Intelligence. */
 export interface DatasetClientContext {
@@ -220,9 +221,10 @@ export class DatasetsClient {
       model: safeRequest.embeddingModel ?? safeRequest.embedding_model ?? safeRequest.embedding?.model ?? DEFAULT_EMBEDDING_MODEL,
       ...(safeRequest.embedding ?? {})
     };
+    const dimension = safeRequest.dimension ?? safeRequest.dim ?? embeddingDimensions[String(embedding.model)];
 
     const dataset = await this.transport.request<Dataset>('POST', '/datasets', {
-      body: toSnakeCasePayload({ ...safeRequest, embedding, indexType: 'sable' })
+      body: toSnakeCasePayload({ ...safeRequest, dimension, embedding, indexType: 'sable' })
     });
     return this.toResource(dataset);
   }

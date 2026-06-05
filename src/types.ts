@@ -130,7 +130,7 @@ export interface CreateDatasetRequest {
   /** Embedding model in snake_case. Defaults to `VectorAmp-Embedding-4B`. */
   embedding_model?: string;
   /** Nested embedding config accepted by the API. Use `openai('small')` or `openai('large')` for OpenAI BYOM. */
-  embedding?: Partial<EmbeddingConfig> & { [key: string]: unknown };
+  embedding?: Partial<EmbeddingConfig>;
   /** User metadata stored with the dataset. */
   metadata?: JsonObject;
   /** Additional API fields. `indexType`/`index_type` are ignored; the SDK always creates SABLE datasets. */

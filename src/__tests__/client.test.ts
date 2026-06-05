@@ -119,6 +119,7 @@ describe('VectorAmp client', () => {
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
       .mockResolvedValueOnce(jsonResponse({ results: [{ id: 'v1', score: 0.99 }] }))
       .mockResolvedValueOnce(jsonResponse({ inserted: 1 }))
+      .mockResolvedValueOnce(jsonResponse({ embeddings: [[1, 2]] }))
       .mockResolvedValueOnce(jsonResponse({ inserted: 2 }));
     const client = new VectorAmp({ apiKey: 'sk', baseUrl: 'https://example.test/', apiPrefix: 'v1', fetch: fetchMock as unknown as typeof fetch });
 
@@ -137,6 +138,9 @@ describe('VectorAmp client', () => {
     expect(JSON.parse(fetchMock.mock.calls[2][1].body as string)).toEqual({ query_text: 'hello' });
     expect(JSON.parse(fetchMock.mock.calls[3][1].body as string)).toEqual({ vectors: [{ id: 'v1', vector: [1, 2], metadata: { tag: 'x' } }] });
     expect(JSON.parse(fetchMock.mock.calls[4][1].body as string)).toEqual({ texts: ['alpha'] });
+    expect(JSON.parse(fetchMock.mock.calls[5][1].body as string)).toEqual({
+      vectors: [{ id: 'text-1', values: [1, 2], metadata: { text: 'alpha' } }]
+    });
   });
 
   it('normalizes single-field hybrid search aliases', async () => {
@@ -189,6 +193,7 @@ describe('VectorAmp client', () => {
       .mockResolvedValueOnce(jsonResponse({ id: 'ds', name: 'Docs', metadata: { team: 'eng' } }, { status: 201 }))
       .mockResolvedValueOnce(jsonResponse({ results: [{ id: 'v1', score: 0.9 }] }))
       .mockResolvedValueOnce(jsonResponse({ inserted: 1 }))
+      .mockResolvedValueOnce(jsonResponse({ embeddings: [[1, 2, 3]] }))
       .mockResolvedValueOnce(jsonResponse({ inserted: 2 }))
       .mockResolvedValueOnce(jsonResponse({ answer: 'because SABLE' }))
       .mockResolvedValueOnce(jsonResponse({ answer: 'with context' }))
@@ -220,13 +225,14 @@ describe('VectorAmp client', () => {
     await expect(dataset.delete()).resolves.toBeUndefined();
     expect(() => new DatasetResource(dataset.service, { id: 'orphan' }).ask('hi')).toThrow('dataset ask requires a VectorAmp client context');
 
-    expect(JSON.parse(fetchMock.mock.calls[4][1].body as string)).toEqual({ question: 'why?', dataset_id: 'ds' });
-    expect(JSON.parse(fetchMock.mock.calls[5][1].body as string)).toEqual({ question: 'why with context?', top_k: 2, dataset_id: 'ds' });
+    expect(JSON.parse(fetchMock.mock.calls[5][1].body as string)).toEqual({ question: 'why?', dataset_id: 'ds' });
+    expect(JSON.parse(fetchMock.mock.calls[6][1].body as string)).toEqual({ question: 'why with context?', top_k: 2, dataset_id: 'ds' });
     expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
       'https://api.vectoramp.com/api/v1/datasets',
       'https://api.vectoramp.com/api/v1/datasets/ds/search',
       'https://api.vectoramp.com/api/v1/datasets/ds/vectors',
-      'https://api.vectoramp.com/api/v1/datasets/ds/texts',
+      'https://api.vectoramp.com/api/v1/datasets/ds/embed',
+      'https://api.vectoramp.com/api/v1/datasets/ds/insert',
       'https://api.vectoramp.com/api/v1/intelligence/query',
       'https://api.vectoramp.com/api/v1/intelligence/query',
       'https://api.vectoramp.com/api/v1/datasets/ds/ingestions/sources',

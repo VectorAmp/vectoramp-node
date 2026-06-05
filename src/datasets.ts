@@ -294,9 +294,25 @@ export class DatasetsClient {
    * @param textsOrRequest - Single text, text records, or an add-texts request.
    * @returns API response for the text ingestion operation.
    */
-  addTexts(id: string, textsOrRequest: AddTextsInput): Promise<unknown> {
+  async addTexts(id: string, textsOrRequest: AddTextsInput): Promise<unknown> {
     const request = normalizeAddTextsRequest(textsOrRequest);
-    return this.transport.request<unknown>('POST', `${datasetPath(id)}/texts`, { body: toSnakeCasePayload(request) });
+    const records = request.texts.map((entry) => (typeof entry === 'string' ? { text: entry } : entry));
+    const texts = records.map((entry) => entry.text);
+    const embedded = await this.transport.request<{ embeddings?: number[][]; embedding?: number[] }>('POST', `${datasetPath(id)}/embed`, {
+      body: toSnakeCasePayload({ texts })
+    });
+    const embeddings = embedded.embeddings ?? (embedded.embedding ? [embedded.embedding] : []);
+    if (embeddings.length !== records.length) {
+      throw new Error(`VectorAmp API returned ${embeddings.length} embeddings for ${records.length} texts`);
+    }
+    const vectors = records.map((entry, index) => ({
+      id: entry.id ?? `text-${index + 1}`,
+      values: embeddings[index],
+      metadata: { ...(request.metadata ?? {}), ...(entry.metadata ?? {}), text: entry.text }
+    }));
+    return this.transport.request<unknown>('POST', `${datasetPath(id)}/insert`, {
+      body: toSnakeCasePayload({ vectors })
+    });
   }
 
   /**

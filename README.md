@@ -112,7 +112,8 @@ await dataset.search('semantic query');
 await dataset.search({
   queryText: 'semantic query',
   topK: 10,
-  includeMetadata: true
+  includeMetadata: true,
+  rerank: { enabled: true } // vectoramp / VectorAmp-Rerank-v1
 });
 
 // Service-style calls accept text, vectors, or full request objects.

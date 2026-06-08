@@ -137,6 +137,18 @@ export interface CreateDatasetRequest {
   [key: string]: unknown;
 }
 
+/** Rerank options for dataset search. `rerank: true` uses VectorAmp defaults. */
+export type RerankOptions = boolean | {
+  /** Enable or disable reranking. */
+  enabled: boolean;
+  /** Public rerank provider. Defaults to `vectoramp`. */
+  provider?: string;
+  /** Public rerank model. Defaults to `VectorAmp-Rerank-v1`. */
+  model?: string;
+  /** Additional API fields. */
+  [key: string]: unknown;
+};
+
 /** Search request options for a dataset. */
 export interface SearchRequest {
   /** Query vector. Alias of `query`; `query` wins if both are set. */
@@ -153,6 +165,8 @@ export interface SearchRequest {
   sparseQuery?: string;
   /** Dense/sparse weighting for hybrid search. When omitted, dataset settings apply. */
   alpha?: number;
+  /** Enable semantic reranking. `true` uses provider `vectoramp` and model `VectorAmp-Rerank-v1`. */
+  rerank?: RerankOptions;
   /** Maximum number of nearest neighbors. Server default applies when omitted. */
   topK?: number;
   /** Metadata filter evaluated by the API. */

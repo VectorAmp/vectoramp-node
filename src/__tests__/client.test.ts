@@ -147,14 +147,15 @@ describe('VectorAmp client', () => {
     const fetchMock = vi.fn(async () => jsonResponse({ results: [] }));
     const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
 
-    await client.datasets.search('ds', { searchText: 'bm25 plus dense', topK: 3, hybrid: true, alpha: 0.7 });
+    await client.datasets.search('ds', { searchText: 'bm25 plus dense', topK: 3, hybrid: true, alpha: 0.7, rerank: true });
 
     const request = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1] as RequestInit;
     expect(JSON.parse(request.body as string)).toEqual({
       query_text: 'bm25 plus dense',
       top_k: 3,
       hybrid: true,
-      alpha: 0.7
+      alpha: 0.7,
+      rerank: true
     });
   });
 
@@ -214,7 +215,7 @@ describe('VectorAmp client', () => {
     expect(dataset.id).toBe('ds');
     expect(dataset.rawData).toEqual({ id: 'ds', name: 'Docs', metadata: { team: 'eng' } });
     expect(Object.keys(dataset)).not.toContain('service');
-    await expect(dataset.search({ queryText: 'sable', topK: 1 })).resolves.toEqual({ results: [{ id: 'v1', score: 0.9 }] });
+    await expect(dataset.search({ queryText: 'sable', topK: 1, rerank: { enabled: true } })).resolves.toEqual({ results: [{ id: 'v1', score: 0.9 }] });
     await expect(dataset.insert([{ id: 'v1', vector: [1, 2, 3] }])).resolves.toEqual({ inserted: 1 });
     await expect(dataset.addTexts(['hello'])).resolves.toEqual({ inserted: 2 });
     await expect(dataset.ask('why?')).resolves.toEqual({ answer: 'because SABLE' });

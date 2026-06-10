@@ -360,9 +360,38 @@ describe('VectorAmp client', () => {
     const events = [];
     for await (const event of client.askStream({ question: 'stream me', datasetId: 'ds' })) events.push(event);
 
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({ question: 'What is VectorAmp?' });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({ query: 'What is VectorAmp?' });
+    expect(fetchMock.mock.calls[1][0]).toBe('https://api.vectoramp.com/api/v1/intelligence/query');
     expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ question: 'stream me', dataset_id: 'ds', stream: true });
     expect(events).toEqual([{ event: 'delta', data: { token: 'hi' } }, { data: 'plain' }]);
+  });
+
+
+  it('supports Intelligence sessions and messages', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ id: 'sess_1', title: 'Planning' }, { status: 201 }))
+      .mockResolvedValueOnce(jsonResponse({ sessions: [{ id: 'sess_1' }] }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'sess_1', title: 'Planning' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'msg_1', role: 'user', content: 'hello' }, { status: 201 }))
+      .mockResolvedValueOnce(jsonResponse({ messages: [{ id: 'msg_1', role: 'user', content: 'hello' }] }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    await expect(client.intelligence.createSession({ title: 'Planning', workspaceId: 'ws_1', datasetId: 'ds_1', metadata: { team: 'eng' } })).resolves.toMatchObject({ id: 'sess_1' });
+    await expect(client.intelligence.listSessions({ limit: 25 })).resolves.toEqual({ sessions: [{ id: 'sess_1' }] });
+    await expect(client.intelligence.getSession('sess/1')).resolves.toMatchObject({ id: 'sess_1' });
+    await expect(client.intelligence.appendMessage('sess/1', { role: 'user', content: 'hello', metadata: { turn: 1 } })).resolves.toMatchObject({ id: 'msg_1' });
+    await expect(client.intelligence.listMessages('sess/1', { limit: 50 })).resolves.toEqual({ messages: [{ id: 'msg_1', role: 'user', content: 'hello' }] });
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      'https://api.vectoramp.com/api/v1/intelligence/sessions',
+      'https://api.vectoramp.com/api/v1/intelligence/sessions?limit=25',
+      'https://api.vectoramp.com/api/v1/intelligence/sessions/sess%2F1',
+      'https://api.vectoramp.com/api/v1/intelligence/sessions/sess%2F1/messages',
+      'https://api.vectoramp.com/api/v1/intelligence/sessions/sess%2F1/messages?limit=50'
+    ]);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({ title: 'Planning', workspace_id: 'ws_1', dataset_id: 'ds_1', metadata: { team: 'eng' } });
+    expect(JSON.parse(fetchMock.mock.calls[3][1].body as string)).toEqual({ role: 'user', content: 'hello', metadata: { turn: 1 } });
   });
 
   it('throws useful API errors', async () => {

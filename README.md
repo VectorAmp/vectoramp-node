@@ -246,3 +246,13 @@ const dataset = await client.datasets.get('dataset_id');
 await dataset.listDocuments();
 await dataset.downloadDocument('document_id');
 ```
+
+### Intelligence sessions
+
+```ts
+const session = await client.intelligence.createSession({ title: 'Planning', datasetId: dataset.id });
+await client.intelligence.appendMessage(session.id, { role: 'user', content: 'Summarize the docs' });
+const messages = await client.intelligence.listMessages(session.id, { limit: 100 });
+```
+
+Intelligence answers return `sources[]` and `chunks[]`. Inline `[1]` citations refer to `sources[0]`; `preview_ref` / `previewRef` is an opaque preview token, not a storage key.

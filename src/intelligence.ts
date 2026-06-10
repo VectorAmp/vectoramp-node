@@ -1,18 +1,29 @@
-import type { AskRequest, AskResponse, StreamEvent, Transport } from './types.js';
+import type {
+  AskRequest,
+  AskResponse,
+  CreateSessionMessageRequest,
+  CreateSessionRequest,
+  IntelligenceSession,
+  MessageListResponse,
+  SessionListResponse,
+  SessionMessage,
+  StreamEvent,
+  Transport
+} from './types.js';
 import { toSnakeCasePayload } from './utils.js';
 
-/** Natural-language query API client. */
+/** Natural-language query and persistent Intelligence session API client. */
 export class IntelligenceClient {
   constructor(private readonly transport: Transport) {}
 
   /**
    * Ask VectorAmp Intelligence a question.
    *
-   * @param request - Question string or full ask request. A string becomes `{ question }`.
-   * @returns The generated answer and citations returned by the API.
+   * @param request - Question string or full ask request. A string becomes `{ query }`.
+   * @returns The generated answer, sources, chunks, message, and metadata returned by the API.
    */
   ask(request: string | AskRequest): Promise<AskResponse> {
-    const body = typeof request === 'string' ? { question: request } : request;
+    const body = typeof request === 'string' ? { query: request } : request;
     return this.transport.request<AskResponse>('POST', '/intelligence/query', { body: toSnakeCasePayload(body) });
   }
 
@@ -27,7 +38,34 @@ export class IntelligenceClient {
       throw new Error('Configured transport does not support streaming responses.');
     }
 
-    const body = typeof request === 'string' ? { question: request, stream: true } : { ...request, stream: true };
-    yield* this.transport.stream('POST', '/intelligence/query/stream', { body: toSnakeCasePayload(body) }) as AsyncIterable<StreamEvent>;
+    const body = typeof request === 'string' ? { query: request, stream: true } : { ...request, stream: true };
+    yield* this.transport.stream('POST', '/intelligence/query', { body: toSnakeCasePayload(body) }) as AsyncIterable<StreamEvent>;
+  }
+
+  /** Create a persistent Intelligence session. */
+  createSession(input: CreateSessionRequest = {}): Promise<IntelligenceSession> {
+    return this.transport.request<IntelligenceSession>('POST', '/intelligence/sessions', { body: toSnakeCasePayload(input) });
+  }
+
+  /** List persistent Intelligence sessions. */
+  listSessions(params: { limit?: number } = {}): Promise<SessionListResponse> {
+    return this.transport.request<SessionListResponse>('GET', '/intelligence/sessions', { query: params });
+  }
+
+  /** Fetch one persistent Intelligence session. */
+  getSession(id: string): Promise<IntelligenceSession> {
+    return this.transport.request<IntelligenceSession>('GET', `/intelligence/sessions/${encodeURIComponent(id)}`);
+  }
+
+  /** Append a message to a persistent Intelligence session. */
+  appendMessage(sessionId: string, input: CreateSessionMessageRequest): Promise<SessionMessage> {
+    return this.transport.request<SessionMessage>('POST', `/intelligence/sessions/${encodeURIComponent(sessionId)}/messages`, {
+      body: toSnakeCasePayload(input)
+    });
+  }
+
+  /** List messages for a persistent Intelligence session. */
+  listMessages(sessionId: string, params: { limit?: number } = {}): Promise<MessageListResponse> {
+    return this.transport.request<MessageListResponse>('GET', `/intelligence/sessions/${encodeURIComponent(sessionId)}/messages`, { query: params });
   }
 }

@@ -516,23 +516,104 @@ export interface ScheduleTriggerResponse {
   [key: string]: unknown;
 }
 
+/** Role accepted by persistent Intelligence session messages. */
+export type SessionMessageRole = 'user' | 'assistant' | 'system' | 'tool';
+
+/** Conversation turn included with an Intelligence query. */
+export interface ConversationTurn {
+  role: Exclude<SessionMessageRole, 'tool'>;
+  content: string;
+}
+
 /** Request to ask VectorAmp Intelligence. */
 export interface AskRequest {
-  /** Natural-language question. */
-  question?: string;
-  /** Query text alias accepted by the API. */
+  /** Natural-language query. */
   query?: string;
-  /** Dataset id to constrain the answer. */
-  datasetId?: string;
-  /** Dataset ids to constrain the answer. */
+  /** Backward-compatible question alias accepted by older API deployments. */
+  question?: string;
+  /** Dataset id to constrain the answer. Use `all` to query across accessible datasets. */
+  datasetId?: string | 'all';
+  /** Dataset id in API/snake_case style. */
+  dataset_id?: string | 'all';
+  /** Backward-compatible multi-dataset field accepted by older API deployments. */
   datasetIds?: string[];
-  /** Maximum context chunks. Server default applies when omitted. */
-  topK?: number;
   /** Metadata filter for context retrieval. */
   filter?: JsonObject;
+  /** Maximum context chunks. Server default applies when omitted. */
+  topK?: number;
+  /** Prior chat turns. */
+  conversationHistory?: ConversationTurn[];
+  /** Include source citations in the response. */
+  includeSources?: boolean;
   /** Whether to stream. `askStream` always sends `true`. */
   stream?: boolean;
   /** Additional API fields. */
+  [key: string]: unknown;
+}
+
+/** Chunk nested under a source citation. */
+export interface SourceChunk {
+  chunkId?: string;
+  chunk_id?: string;
+  score?: number;
+  text?: string;
+  chunkIndex?: number;
+  chunk_index?: number;
+  sheetName?: string;
+  sheet_name?: string;
+  rowStart?: number;
+  row_start?: number;
+  rowEnd?: number;
+  row_end?: number;
+  columnNames?: string[];
+  column_names?: string[];
+  [key: string]: unknown;
+}
+
+/** Source-level citation used to generate an Intelligence answer. */
+export interface SourceCitation {
+  name?: string;
+  path?: string;
+  url?: string | null;
+  datasetId?: string;
+  dataset_id?: string;
+  datasetDocumentId?: string;
+  dataset_document_id?: string;
+  sourceType?: string;
+  source_type?: string;
+  contentType?: string;
+  content_type?: string;
+  relevance?: number;
+  pages?: number[];
+  sheetNames?: string[];
+  sheet_names?: string[];
+  chunkCount?: number;
+  chunk_count?: number;
+  preview?: string;
+  chunks?: SourceChunk[];
+  timestampStart?: string | number;
+  timestamp_start?: string | number;
+  timestampEnd?: string | number;
+  timestamp_end?: string | number;
+  fileId?: string;
+  file_id?: string;
+  thumbnailUrl?: string | null;
+  thumbnail_url?: string | null;
+  previewRef?: string;
+  preview_ref?: string;
+  [key: string]: unknown;
+}
+
+/** Retrieved chunk-level match returned by an Intelligence query. */
+export interface RAGChunk {
+  id?: string;
+  text?: string;
+  score?: number;
+  source?: string;
+  sourceUrl?: string | null;
+  source_url?: string | null;
+  page?: string | number;
+  metadata?: JsonObject;
   [key: string]: unknown;
 }
 
@@ -540,9 +621,77 @@ export interface AskRequest {
 export interface AskResponse {
   /** Generated answer. */
   answer?: string;
-  /** Citations or context chunks returned by the API. */
+  /** Source-level citations returned by the API. */
+  sources?: SourceCitation[];
+  /** Retrieved chunk-level matches returned by the API. */
+  chunks?: RAGChunk[];
+  /** Optional API message. */
+  message?: string | null;
+  /** Response metadata. */
+  metadata?: JsonObject;
+  /** Legacy alias from older SDK/API versions. Prefer `sources`. */
   citations?: unknown[];
   /** Additional API fields. */
+  [key: string]: unknown;
+}
+
+/** Request to create a persistent Intelligence session. */
+export interface CreateSessionRequest {
+  title?: string;
+  workspaceId?: string;
+  workspace_id?: string;
+  datasetId?: string;
+  dataset_id?: string;
+  metadata?: JsonObject;
+  [key: string]: unknown;
+}
+
+/** Persistent Intelligence session returned by the API. */
+export interface IntelligenceSession {
+  id: string;
+  title?: string;
+  workspaceId?: string;
+  workspace_id?: string;
+  datasetId?: string;
+  dataset_id?: string;
+  metadata?: JsonObject;
+  createdAt?: string;
+  created_at?: string;
+  updatedAt?: string;
+  updated_at?: string;
+  [key: string]: unknown;
+}
+
+/** Request to append a message to a persistent Intelligence session. */
+export interface CreateSessionMessageRequest {
+  role: SessionMessageRole;
+  content: string;
+  metadata?: JsonObject;
+  [key: string]: unknown;
+}
+
+/** Message stored in a persistent Intelligence session. */
+export interface SessionMessage {
+  id: string;
+  sessionId?: string;
+  session_id?: string;
+  role: SessionMessageRole;
+  content: string;
+  metadata?: JsonObject;
+  createdAt?: string;
+  created_at?: string;
+  [key: string]: unknown;
+}
+
+/** Session list envelope. */
+export interface SessionListResponse {
+  sessions: IntelligenceSession[];
+  [key: string]: unknown;
+}
+
+/** Message list envelope. */
+export interface MessageListResponse {
+  messages: SessionMessage[];
   [key: string]: unknown;
 }
 

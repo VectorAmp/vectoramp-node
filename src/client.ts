@@ -8,8 +8,8 @@ import type { AskRequest, AskResponse, StreamEvent, Transport, VectorAmpClientOp
 
 /** Default VectorAmp API origin. */
 const DEFAULT_BASE_URL = 'https://api.vectoramp.com';
-/** Default VectorAmp API prefix. */
-const DEFAULT_API_PREFIX = '/api/v1';
+/** Default VectorAmp API prefix. The public gateway serves unprefixed paths. */
+const DEFAULT_API_PREFIX = '';
 
 /** Primary entry point for the VectorAmp Node SDK. */
 export class VectorAmpClient {
@@ -29,7 +29,7 @@ export class VectorAmpClient {
   /**
    * Create a VectorAmp client.
    *
-   * @param options - Client configuration. Defaults to `https://api.vectoramp.com/api/v1` and `VECTORAMP_API_KEY`.
+   * @param options - Client configuration. Defaults to `https://api.vectoramp.com` and `VECTORAMP_API_KEY`.
    */
   constructor(options: VectorAmpClientOptions = {}) {
     this.transport = options.transport ?? new RestTransport({
@@ -50,7 +50,7 @@ export class VectorAmpClient {
   /**
    * Ask VectorAmp Intelligence a question.
    *
-   * @param request - Question string or full ask request. A string becomes `{ question }`.
+   * @param request - Question string or full ask request. A string becomes `{ query }`.
    * @returns The generated answer and citations returned by the API.
    */
   ask(request: string | AskRequest): Promise<AskResponse> {

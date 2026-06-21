@@ -29,7 +29,7 @@ function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
 describe('VectorAmp client', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('uses the default API origin, configurable prefix, and X-API-Key auth', async () => {
+  it('uses the default unprefixed API origin and X-API-Key auth', async () => {
     const fetchMock = vi.fn(async () => jsonResponse([{ id: 'ds_1' }])) as unknown as typeof fetch;
     const client = new VectorAmp({ apiKey: 'sk_test', fetch: fetchMock });
 
@@ -38,8 +38,9 @@ describe('VectorAmp client', () => {
     expect(page).toMatchObject({ limit: 10, offset: 20 });
     expect(page.data[0]).toBeInstanceOf(DatasetResource);
     expect(page.data[0]).toMatchObject({ id: 'ds_1' });
+    // Paths are unprefixed on the public gateway: /api/v1 would 404.
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://api.vectoramp.com/api/v1/datasets?limit=10&offset=20',
+      'https://api.vectoramp.com/datasets?limit=10&offset=20',
       expect.objectContaining({
         method: 'GET',
         headers: expect.any(Headers),
@@ -74,25 +75,211 @@ describe('VectorAmp client', () => {
 
     await expect(client.ingestion.retryJob('job_1')).resolves.toEqual({ job_id: 'job_2', status: 'pending' });
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://api.vectoramp.com/api/v1/ingestion/jobs/job_1/retry',
+      'https://api.vectoramp.com/ingestion/jobs/job_1/retry',
       expect.objectContaining({ method: 'POST' })
     );
+  });
+
+  it('exposes the source + job lifecycle through client.ingestion and client.sources', async () => {
+    const fetchMock = vi
+      .fn()
+      // client.ingestion.listSources
+      .mockResolvedValueOnce(jsonResponse({ sources: [{ id: 'src_1' }], total: 1 }))
+      // client.ingestion.getSource
+      .mockResolvedValueOnce(jsonResponse({ id: 'src_1', source_type: 'web' }))
+      // client.ingestion.startJob
+      .mockResolvedValueOnce(jsonResponse({ id: 'job_1', status: 'pending' }))
+      // client.ingestion.listJobs (filtered by dataset)
+      .mockResolvedValueOnce(jsonResponse({ jobs: [{ id: 'job_1' }], total: 1 }))
+      // client.ingestion.getJob
+      .mockResolvedValueOnce(jsonResponse({ id: 'job_1', status: 'completed' }))
+      // client.sources alias delegates the same surface
+      .mockResolvedValueOnce(jsonResponse({ jobs: [{ id: 'job_1' }] }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    await expect(client.ingestion.listSources({ limit: 10 })).resolves.toMatchObject({ total: 1 });
+    await expect(client.ingestion.getSource('src_1')).resolves.toMatchObject({ id: 'src_1' });
+    await expect(client.ingestion.startJob({ sourceId: 'src_1', datasetId: 'ds', pipelineId: 'pl_1' })).resolves.toMatchObject({ id: 'job_1' });
+    await expect(client.ingestion.listJobs({ datasetId: 'ds', limit: 5 })).resolves.toMatchObject({ total: 1 });
+    await expect(client.ingestion.getJob('job_1')).resolves.toMatchObject({ status: 'completed' });
+    await expect(client.sources.listJobs({ datasetId: 'ds' })).resolves.toMatchObject({ data: [{ id: 'job_1' }] });
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      'https://api.vectoramp.com/ingestion/sources?limit=10',
+      'https://api.vectoramp.com/ingestion/sources/src_1',
+      'https://api.vectoramp.com/ingestion/jobs',
+      'https://api.vectoramp.com/ingestion/jobs?limit=5&dataset_id=ds',
+      'https://api.vectoramp.com/ingestion/jobs/job_1',
+      'https://api.vectoramp.com/ingestion/jobs?dataset_id=ds'
+    ]);
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body as string)).toEqual({
+      source_id: 'src_1',
+      dataset_id: 'ds',
+      pipeline_id: 'pl_1'
+    });
+  });
+
+  it('creates sources through the client.sources alias', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ id: 'src_g', source_type: 'gdrive' }, { status: 201 }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'src_1', source_type: 'web' }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    await expect(client.sources.create(genericSource('gdrive', { folderId: 'f1' }))).resolves.toMatchObject({ id: 'src_g' });
+    await expect(client.sources.get('src_1')).resolves.toMatchObject({ id: 'src_1' });
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      'https://api.vectoramp.com/ingestion/sources',
+      'https://api.vectoramp.com/ingestion/sources/src_1'
+    ]);
+  });
+
+  it('accepts URI/string shorthands for every source factory', () => {
+    expect(webSource('https://docs.example.com')).toEqual({ source_type: 'web', uri: 'https://docs.example.com' });
+    expect(s3Source('s3://b/p')).toEqual({ source_type: 's3', uri: 's3://b/p' });
+    expect(gcsSource('gs://b/p')).toEqual({ source_type: 'gcs', uri: 'gs://b/p' });
+    expect(googleDriveSource('drive-folder-id')).toEqual({ source_type: 'gdrive', uri: 'drive-folder-id' });
+    expect(fileUploadSource()).toEqual({ source_type: 'file_upload', name: 'Local file upload' });
+    expect(jiraSource({ includeComments: false, cloudId: 'c' })).toEqual({ source_type: 'jira', includeComments: false, cloudId: 'c' });
+  });
+
+  it('creates every source type through the dedicated client.sources helpers', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ id: 'src' }, { status: 201 }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    await client.sources.createWeb('https://docs.example.com');
+    await client.sources.createS3('s3://b/p');
+    await client.sources.createGcs('gs://b/p');
+    await client.sources.createGoogleDrive('folder-id');
+    await client.sources.createFileUpload();
+    await client.sources.createJira({ cloudId: 'c', accessToken: 't' });
+    await client.sources.createConfluence({ baseUrl: 'https://acme.atlassian.net', username: 'u', config: { apiToken: 't' } });
+
+    const calls = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.map((call) => JSON.parse(call[1].body as string).source_type)).toEqual([
+      'web',
+      's3',
+      'gcs',
+      'gdrive',
+      'file_upload',
+      'jira',
+      'confluence'
+    ]);
+  });
+
+  it('rejects ingestFiles without paths or upload support', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({}));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+    await expect(client.datasets.ingestFiles('ds', [])).rejects.toThrow(/at least one file path/);
+
+    const noPutClient = new VectorAmp({ transport: { request: async <T,>() => ({}) as T } });
+    await expect(noPutClient.datasets.ingestFiles('ds', ['/tmp/x.md'])).rejects.toThrow(/does not support presigned file uploads/);
+  });
+
+  it('surfaces presigned PUT failures and back-fills the job id', async () => {
+    const root = join(tmpdir(), `vectoramp-sdk-put-${Date.now()}`);
+    await mkdir(root, { recursive: true });
+    const filePath = join(root, 'doc.txt');
+    await writeFile(filePath, 'hello');
+
+    // PUT failure path.
+    const failingFetch = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ id: 'src_files' }, { status: 201 }))
+      .mockResolvedValueOnce(jsonResponse({ job_id: 'upl_1', uploads: [{ file_id: 'f1', upload_url: 'https://up.example.com/f1' }] }))
+      .mockResolvedValueOnce(new Response('denied', { status: 403, statusText: 'Forbidden' }));
+    const failingClient = new VectorAmp({ apiKey: 'sk', fetch: failingFetch as unknown as typeof fetch });
+    await expect(failingClient.datasets.ingestFiles('ds', [filePath])).rejects.toThrow(/Presigned file upload failed/);
+
+    // Successful flow where complete returns no id: the SDK back-fills the upload job id.
+    const okFetch = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ id: 'src_files' }, { status: 201 }))
+      .mockResolvedValueOnce(jsonResponse({ job_id: 'upl_2', uploads: [{ file_id: 'f1', upload_url: 'https://up.example.com/f1' }] }))
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(jsonResponse({ status: 'pending' }));
+    const okClient = new VectorAmp({ apiKey: 'sk', fetch: okFetch as unknown as typeof fetch });
+    await expect(okClient.datasets.ingestFiles('ds', [filePath])).resolves.toMatchObject({ id: 'upl_2', status: 'pending' });
   });
 
   it('forces SABLE when creating datasets and ignores caller-provided index type', async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ id: 'ds_1', index_type: 'sable' }, { status: 201 }));
     const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
 
-    const dataset = await client.datasets.create({ name: 'docs', dimension: 768, indexType: 'hnsw' } as never);
+    const dataset = await client.datasets.create({ name: 'docs', dim: 768, indexType: 'hnsw' } as never);
 
     expect(dataset).toBeInstanceOf(DatasetResource);
     expect(dataset).toMatchObject({ id: 'ds_1', index_type: 'sable' });
 
     const request = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    // The create body uses "dim" (not "dimension") and always forces SABLE.
     expect(JSON.parse(request.body as string)).toEqual({
       name: 'docs',
-      dimension: 768,
+      dim: 768,
       embedding: { provider: 'vectoramp', model: 'VectorAmp-Embedding-4B' },
+      index_type: 'sable'
+    });
+  });
+
+  it('creates a dataset from only a name using built-in defaults', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ id: 'ds_min', index_type: 'sable' }, { status: 201 }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    await client.datasets.create({ name: 'docs' });
+
+    const request = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    // Minimal create: default VectorAmp-Embedding-4B (dim 2560), SABLE forced.
+    expect(JSON.parse(request.body as string)).toEqual({
+      name: 'docs',
+      dim: 2560,
+      embedding: { provider: 'vectoramp', model: 'VectorAmp-Embedding-4B' },
+      index_type: 'sable'
+    });
+    expect((fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe('https://api.vectoramp.com/datasets');
+  });
+
+  it('creates a hybrid dataset when hybrid is requested', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ id: 'ds_hybrid', index_type: 'sable' }, { status: 201 }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    await client.datasets.create({ name: 'docs', hybrid: true });
+
+    const request = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    expect(JSON.parse(request.body as string)).toEqual({
+      name: 'docs',
+      hybrid: true,
+      dim: 2560,
+      embedding: { provider: 'vectoramp', model: 'VectorAmp-Embedding-4B' },
+      index_type: 'sable'
+    });
+  });
+
+  it('requires an explicit dim for unknown custom embedding models', async () => {
+    const client = new VectorAmp({ apiKey: 'sk', fetch: vi.fn() as unknown as typeof fetch });
+
+    await expect(
+      client.datasets.create({ name: 'docs', embedding: { provider: 'acme', model: 'acme-embed-1' } })
+    ).rejects.toThrow(/Unable to infer vector dimension/);
+  });
+
+  it('accepts snake_case embedding aliases and the dimension alias on create', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ id: 'ds_alias', index_type: 'sable' }, { status: 201 }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    await client.datasets.create({
+      name: 'docs',
+      // snake_case provider/model aliases plus the deprecated "dimension" alias.
+      embedding_provider: 'acme',
+      embedding_model: 'acme-embed-1',
+      dimension: 512
+    } as never);
+
+    const request = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    expect(JSON.parse(request.body as string)).toEqual({
+      name: 'docs',
+      dim: 512,
+      embedding: { provider: 'acme', model: 'acme-embed-1' },
       index_type: 'sable'
     });
   });
@@ -106,7 +293,7 @@ describe('VectorAmp client', () => {
     const request = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1];
     expect(JSON.parse(request.body as string)).toEqual({
       name: 'openai-docs',
-      dimension: 3072,
+      dim: 3072,
       embedding: { provider: 'openai', model: 'text-embedding-3-large', secret_ref: 'emb:openai:api_key' },
       index_type: 'sable'
     });
@@ -130,17 +317,54 @@ describe('VectorAmp client', () => {
     await expect(client.datasets.search('ds', 'hello')).resolves.toEqual({
       results: [{ id: 'v1', score: 0.99 }]
     });
-    await client.datasets.insert('ds', [{ id: 'v1', vector: [1, 2], metadata: { tag: 'x' } }]);
+    await client.datasets.insert('ds', [{ id: 'v1', values: [1, 2], metadata: { tag: 'x' } }]);
     await client.datasets.addTexts('ds', 'alpha');
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, 'https://example.test/v1/datasets/a%2Fb', expect.objectContaining({ method: 'GET' }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, 'https://example.test/v1/datasets/a%2Fb', expect.objectContaining({ method: 'DELETE' }));
+    // insert posts to /insert, not /vectors.
+    expect(fetchMock.mock.calls[3][0]).toBe('https://example.test/v1/datasets/ds/insert');
     expect(JSON.parse(fetchMock.mock.calls[2][1].body as string)).toEqual({ query_text: 'hello' });
-    expect(JSON.parse(fetchMock.mock.calls[3][1].body as string)).toEqual({ vectors: [{ id: 'v1', vector: [1, 2], metadata: { tag: 'x' } }] });
+    expect(JSON.parse(fetchMock.mock.calls[3][1].body as string)).toEqual({ vectors: [{ id: 'v1', values: [1, 2], metadata: { tag: 'x' } }] });
     expect(JSON.parse(fetchMock.mock.calls[4][1].body as string)).toEqual({ texts: ['alpha'] });
     expect(JSON.parse(fetchMock.mock.calls[5][1].body as string)).toEqual({
       vectors: [{ id: 'text-1', values: [1, 2], metadata: { text: 'alpha' } }]
     });
+  });
+
+  it('preserves numeric vector ids as JSON numbers on insert', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ inserted: 2 }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    await client.datasets.insert('ds', [
+      { id: 42, values: [0.1, 0.2] },
+      { id: 'str-id', values: [0.3, 0.4] }
+    ]);
+
+    const calls = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    const rawBody = calls[0][1].body as string;
+    // The integer id must serialize as a JSON number (42), not a string ("42").
+    expect(rawBody).toContain('"id":42');
+    expect(rawBody).not.toContain('"id":"42"');
+    const parsed = JSON.parse(rawBody);
+    expect(parsed.vectors[0].id).toBe(42);
+    expect(typeof parsed.vectors[0].id).toBe('number');
+    expect(parsed.vectors[1].id).toBe('str-id');
+    // The vector array is sent under the engine's canonical `values` field.
+    expect(parsed.vectors[0].values).toEqual([0.1, 0.2]);
+    expect(calls[0][0]).toBe('https://api.vectoramp.com/datasets/ds/insert');
+  });
+
+  it('sends the vector array under `values` and accepts `vector` as a legacy alias', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ inserted: 1 }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    // Legacy callers may still pass `vector`; it is normalized to `values`.
+    await client.datasets.insert('ds', [{ id: 'v1', vector: [1, 2, 3] } as unknown as { id: string; values: number[] }]);
+
+    const body = JSON.parse((fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1].body as string);
+    expect(body.vectors[0].values).toEqual([1, 2, 3]);
+    expect(body.vectors[0].vector).toBeUndefined();
   });
 
   it('normalizes single-field hybrid search aliases', async () => {
@@ -180,11 +404,11 @@ describe('VectorAmp client', () => {
     expect(new TextDecoder().decode(bytes)).toBe('world');
 
     expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
-      'https://api.vectoramp.com/api/v1/datasets/ds/documents?limit=10&cursor=doc_0&status=ready',
-      'https://api.vectoramp.com/api/v1/datasets/ds/documents/doc_1/download',
-      'https://api.vectoramp.com/api/v1/datasets/ds',
-      'https://api.vectoramp.com/api/v1/datasets/ds/documents',
-      'https://api.vectoramp.com/api/v1/datasets/ds/documents/doc_2/download'
+      'https://api.vectoramp.com/datasets/ds/documents?limit=10&cursor=doc_0&status=ready',
+      'https://api.vectoramp.com/datasets/ds/documents/doc_1/download',
+      'https://api.vectoramp.com/datasets/ds',
+      'https://api.vectoramp.com/datasets/ds/documents',
+      'https://api.vectoramp.com/datasets/ds/documents/doc_2/download'
     ]);
   });
 
@@ -198,16 +422,10 @@ describe('VectorAmp client', () => {
       .mockResolvedValueOnce(jsonResponse({ inserted: 2 }))
       .mockResolvedValueOnce(jsonResponse({ answer: 'because SABLE' }))
       .mockResolvedValueOnce(jsonResponse({ answer: 'with context' }))
+      // ingestSource with an existing source id -> POST /ingestion/jobs
       .mockResolvedValueOnce(jsonResponse({ id: 'job_source' }))
-      .mockResolvedValueOnce(jsonResponse({ id: 'src_files' }, { status: 201 }))
-      .mockResolvedValueOnce(jsonResponse({ id: 'job_files' }))
-      .mockResolvedValueOnce(jsonResponse({ id: 'src_fs' }, { status: 201 }))
-      .mockResolvedValueOnce(jsonResponse({ id: 'job_fs' }))
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
     const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
-    const root = join(tmpdir(), `vectoramp-sdk-resource-${Date.now()}`);
-    await mkdir(root, { recursive: true });
-    await writeFile(join(root, 'note.md'), 'Note');
 
     const dataset = await client.datasets.create({ name: 'Docs' });
 
@@ -216,37 +434,124 @@ describe('VectorAmp client', () => {
     expect(dataset.rawData).toEqual({ id: 'ds', name: 'Docs', metadata: { team: 'eng' } });
     expect(Object.keys(dataset)).not.toContain('service');
     await expect(dataset.search({ queryText: 'sable', topK: 1, rerank: { enabled: true } })).resolves.toEqual({ results: [{ id: 'v1', score: 0.9 }] });
-    await expect(dataset.insert([{ id: 'v1', vector: [1, 2, 3] }])).resolves.toEqual({ inserted: 1 });
+    await expect(dataset.insert([{ id: 'v1', values: [1, 2, 3] }])).resolves.toEqual({ inserted: 1 });
     await expect(dataset.addTexts(['hello'])).resolves.toEqual({ inserted: 2 });
     await expect(dataset.ask('why?')).resolves.toEqual({ answer: 'because SABLE' });
     await expect(dataset.ask({ question: 'why with context?', topK: 2 })).resolves.toEqual({ answer: 'with context' });
-    await expect(dataset.ingestSource({ source: 's3', uri: 's3://bucket/docs' })).resolves.toEqual({ id: 'job_source' });
-    await expect(dataset.ingestFiles({ files: [{ path: 'a.md', content: 'A' }] })).resolves.toEqual({ id: 'job_files' });
-    await expect(dataset.ingestFilesystem(root)).resolves.toEqual({ id: 'job_fs' });
+    await expect(dataset.ingestSource('src_123')).resolves.toEqual({ id: 'job_source' });
     await expect(dataset.delete()).resolves.toBeUndefined();
     expect(() => new DatasetResource(dataset.service, { id: 'orphan' }).ask('hi')).toThrow('dataset ask requires a VectorAmp client context');
 
-    expect(JSON.parse(fetchMock.mock.calls[5][1].body as string)).toEqual({ question: 'why?', dataset_id: 'ds' });
+    // A bare string ask becomes { query }; dataset id is injected.
+    expect(JSON.parse(fetchMock.mock.calls[5][1].body as string)).toEqual({ query: 'why?', dataset_id: 'ds' });
     expect(JSON.parse(fetchMock.mock.calls[6][1].body as string)).toEqual({ question: 'why with context?', top_k: 2, dataset_id: 'ds' });
+    // ingestSource with an existing id starts a job directly.
+    expect(JSON.parse(fetchMock.mock.calls[7][1].body as string)).toEqual({ source_id: 'src_123', dataset_id: 'ds' });
     expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
-      'https://api.vectoramp.com/api/v1/datasets',
-      'https://api.vectoramp.com/api/v1/datasets/ds/search',
-      'https://api.vectoramp.com/api/v1/datasets/ds/vectors',
-      'https://api.vectoramp.com/api/v1/datasets/ds/embed',
-      'https://api.vectoramp.com/api/v1/datasets/ds/insert',
-      'https://api.vectoramp.com/api/v1/intelligence/query',
-      'https://api.vectoramp.com/api/v1/intelligence/query',
-      'https://api.vectoramp.com/api/v1/datasets/ds/ingestions/sources',
-      'https://api.vectoramp.com/api/v1/ingestion/sources',
-      'https://api.vectoramp.com/api/v1/datasets/ds/ingestions/filesystem',
-      'https://api.vectoramp.com/api/v1/ingestion/sources',
-      'https://api.vectoramp.com/api/v1/datasets/ds/ingestions/filesystem',
-      'https://api.vectoramp.com/api/v1/datasets/ds'
+      'https://api.vectoramp.com/datasets',
+      'https://api.vectoramp.com/datasets/ds/search',
+      'https://api.vectoramp.com/datasets/ds/insert',
+      'https://api.vectoramp.com/datasets/ds/embed',
+      'https://api.vectoramp.com/datasets/ds/insert',
+      'https://api.vectoramp.com/intelligence/query',
+      'https://api.vectoramp.com/intelligence/query',
+      'https://api.vectoramp.com/ingestion/jobs',
+      'https://api.vectoramp.com/datasets/ds'
     ]);
   });
 
-  it('supports ingestion from sources and local filesystem payloads', async () => {
-    const root = join(tmpdir(), `vectoramp-sdk-${Date.now()}`);
+  it('throws when the embed endpoint returns a mismatched number of embeddings', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ embeddings: [[1, 2]] }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    await expect(client.datasets.addTexts('ds', ['a', 'b'])).rejects.toThrow(/returned 1 embeddings for 2 texts/);
+  });
+
+  it('ingestSource starts a job from an existing source reference object', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ id: 'job_ref', status: 'pending' }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    // A reference object ({ source_id }) is treated as an existing source: no create call.
+    await expect(client.datasets.ingestSource('ds', { source_id: 'src_existing' })).resolves.toMatchObject({ id: 'job_ref' });
+
+    const calls = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0]).toBe('https://api.vectoramp.com/ingestion/jobs');
+    expect(JSON.parse(calls[0][1].body as string)).toEqual({ source_id: 'src_existing', dataset_id: 'ds' });
+  });
+
+  it('ingestSource creates a source from a builder before starting the job', async () => {
+    const fetchMock = vi
+      .fn()
+      // create source from the webSource builder
+      .mockResolvedValueOnce(jsonResponse({ id: 'src_web', source_type: 'web' }, { status: 201 }))
+      // start the job
+      .mockResolvedValueOnce(jsonResponse({ id: 'job_web', status: 'pending' }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    await expect(
+      client.datasets.ingestSource('ds', webSource('https://docs.example.com'), { pipelineId: 'pl_1' })
+    ).resolves.toEqual({ id: 'job_web', status: 'pending' });
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      'https://api.vectoramp.com/ingestion/sources',
+      'https://api.vectoramp.com/ingestion/jobs'
+    ]);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({ source_type: 'web', uri: 'https://docs.example.com' });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({
+      source_id: 'src_web',
+      dataset_id: 'ds',
+      pipeline_id: 'pl_1'
+    });
+  });
+
+  it('ingestFiles runs the presigned upload flow (init -> PUT -> complete)', async () => {
+    const root = join(tmpdir(), `vectoramp-sdk-upload-${Date.now()}`);
+    await mkdir(root, { recursive: true });
+    const filePath = join(root, 'intro.md');
+    await writeFile(filePath, '# Intro');
+
+    const fetchMock = vi
+      .fn()
+      // create file_upload source
+      .mockResolvedValueOnce(jsonResponse({ id: 'src_files', source_type: 'file_upload' }, { status: 201 }))
+      // upload/init
+      .mockResolvedValueOnce(
+        jsonResponse({ job_id: 'upl_1', uploads: [{ file_id: 'file_1', upload_url: 'https://uploads.example.com/file_1?sig=abc' }] })
+      )
+      // PUT presigned url
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      // upload/complete
+      .mockResolvedValueOnce(jsonResponse({ job_id: 'job_files', status: 'pending' }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    await expect(client.datasets.ingestFiles('ds', [filePath], { sourceName: 'Docs upload' })).resolves.toMatchObject({
+      job_id: 'job_files'
+    });
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      'https://api.vectoramp.com/ingestion/sources',
+      'https://api.vectoramp.com/ingestion/sources/src_files/upload/init',
+      'https://uploads.example.com/file_1?sig=abc',
+      'https://api.vectoramp.com/ingestion/sources/src_files/upload/complete'
+    ]);
+    // Auto-created file_upload source carries dataset_id + storage defaults.
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({
+      source_type: 'file_upload',
+      name: 'Docs upload',
+      config: { storage_provider: 's3', sync_mode: 'full' },
+      metadata: { dataset_id: 'ds' }
+    });
+    const initBody = JSON.parse(fetchMock.mock.calls[1][1].body as string);
+    expect(initBody.files[0]).toMatchObject({ name: 'intro.md', content_type: 'text/markdown' });
+    expect(initBody.files[0].size_bytes).toBeGreaterThan(0);
+    // The presigned PUT bypasses the API key and uses the absolute URL.
+    expect(fetchMock.mock.calls[2][1].method).toBe('PUT');
+    expect(JSON.parse(fetchMock.mock.calls[3][1].body as string)).toEqual({ job_id: 'upl_1', file_ids: ['file_1'] });
+  });
+
+  it('ingestFilesystem walks a directory and uploads matching files', async () => {
+    const root = join(tmpdir(), `vectoramp-sdk-fs-${Date.now()}`);
     await mkdir(join(root, 'nested'), { recursive: true });
     await writeFile(join(root, 'one.md'), '# One');
     await writeFile(join(root, 'nested', 'two.txt'), 'Two');
@@ -254,32 +559,28 @@ describe('VectorAmp client', () => {
 
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(jsonResponse({ id: 'job_source' }))
-      .mockResolvedValueOnce(jsonResponse({ id: 'job_source_id' }))
-      .mockResolvedValueOnce(jsonResponse({ id: 'src_fs' }, { status: 201 }))
-      .mockResolvedValueOnce(jsonResponse({ id: 'job_fs' }))
-      .mockResolvedValueOnce(jsonResponse({ id: 'job_existing_source' }));
+      .mockResolvedValueOnce(jsonResponse({ id: 'src_fs', source_type: 'file_upload' }, { status: 201 }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          job_id: 'upl_fs',
+          uploads: [
+            { file_id: 'f1', upload_url: 'https://uploads.example.com/f1' },
+            { file_id: 'f2', upload_url: 'https://uploads.example.com/f2' }
+          ]
+        })
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(jsonResponse({ job_id: 'job_fs', status: 'pending' }));
     const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
 
-    await expect(client.datasets.ingestSource('ds', { source: 's3', uri: 's3://bucket/path' })).resolves.toEqual({ id: 'job_source' });
-    await expect(client.datasets.ingestSource('ds', 'src_123')).resolves.toEqual({ id: 'job_source_id' });
-    await expect(client.datasets.ingestFilesystem('ds', root)).resolves.toEqual({ id: 'job_fs' });
-    await expect(client.datasets.ingestFiles('ds', { sourceId: 'existing_src', source_id: undefined, files: [{ path: 'three.md', content: 'Three' }] })).resolves.toEqual({ id: 'job_existing_source' });
+    await expect(client.datasets.ingestFilesystem('ds', root)).resolves.toMatchObject({ job_id: 'job_fs' });
 
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({ source: 's3', uri: 's3://bucket/path' });
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ source_id: 'src_123' });
-    expect(JSON.parse(fetchMock.mock.calls[2][1].body as string)).toEqual({ source_type: 'file_upload', name: expect.stringMatching(/^Local files: /) });
-    const fsBody = JSON.parse(fetchMock.mock.calls[3][1].body as string);
-    expect(fsBody.source_id).toBe('src_fs');
-    expect(fsBody.root).toBe(root);
-    expect(fsBody.files).toEqual(
-      expect.arrayContaining([
-        { path: 'one.md', content: '# One' },
-        { path: 'nested/two.txt', content: 'Two' }
-      ])
-    );
-    expect(fsBody.files).toHaveLength(2);
-    expect(JSON.parse(fetchMock.mock.calls[4][1].body as string)).toEqual({ files: [{ path: 'three.md', content: 'Three' }], source_id: 'existing_src' });
+    // Two matching text files were collected; skip.bin was ignored.
+    const initBody = JSON.parse(fetchMock.mock.calls[1][1].body as string);
+    expect(initBody.files).toHaveLength(2);
+    expect(initBody.files.map((file: { name: string }) => file.name).sort()).toEqual(['one.md', 'two.txt']);
+    expect(JSON.parse(fetchMock.mock.calls[4][1].body as string)).toEqual({ job_id: 'upl_fs', file_ids: ['f1', 'f2'] });
   });
 
   it('builds typed ingestion sources and creates them through client.sources', async () => {
@@ -292,6 +593,8 @@ describe('VectorAmp client', () => {
       .mockResolvedValueOnce(jsonResponse({ id: 'src_upload', source_type: 'file_upload' }, { status: 201 }))
       .mockResolvedValueOnce(jsonResponse({ id: 'src_jira', source_type: 'jira' }, { status: 201 }))
       .mockResolvedValueOnce(jsonResponse({ id: 'src_confluence', source_type: 'confluence' }, { status: 201 }))
+      // typedWeb inline ingest: create source, then start the job
+      .mockResolvedValueOnce(jsonResponse({ id: 'src_inline', source_type: 'web' }, { status: 201 }))
       .mockResolvedValueOnce(jsonResponse({ id: 'job_inline' }));
     const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
 
@@ -301,6 +604,7 @@ describe('VectorAmp client', () => {
     expect(googleDriveSource({ folderId: 'folder_1' })).toEqual({ source_type: 'gdrive', folderId: 'folder_1' });
     expect(fileUploadSource({ fileIds: ['file_1'] })).toEqual({ source_type: 'file_upload', name: 'Local file upload', fileIds: ['file_1'] });
     expect(jiraSource({ cloudId: 'cloud_1', projectKeys: ['ENG'] })).toEqual({ source_type: 'jira', includeComments: true, cloudId: 'cloud_1', projectKeys: ['ENG'] });
+    // Confluence helper is present and stamps the confluence source_type.
     expect(confluenceSource({ cloudId: 'cloud_1', spaceKeys: ['DOCS'] })).toEqual({ source_type: 'confluence', cloudId: 'cloud_1', spaceKeys: ['DOCS'] });
     expect(genericSource('custom_source', { uri: 'custom://source' })).toEqual({ source_type: 'custom_source', uri: 'custom://source' });
 
@@ -314,14 +618,15 @@ describe('VectorAmp client', () => {
     await expect(client.datasets.ingestSource('ds', typedWeb)).resolves.toEqual({ id: 'job_inline' });
 
     expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
-      'https://api.vectoramp.com/api/v1/ingestion/sources',
-      'https://api.vectoramp.com/api/v1/ingestion/sources',
-      'https://api.vectoramp.com/api/v1/ingestion/sources',
-      'https://api.vectoramp.com/api/v1/ingestion/sources',
-      'https://api.vectoramp.com/api/v1/ingestion/sources',
-      'https://api.vectoramp.com/api/v1/ingestion/sources',
-      'https://api.vectoramp.com/api/v1/ingestion/sources',
-      'https://api.vectoramp.com/api/v1/datasets/ds/ingestions/sources'
+      'https://api.vectoramp.com/ingestion/sources',
+      'https://api.vectoramp.com/ingestion/sources',
+      'https://api.vectoramp.com/ingestion/sources',
+      'https://api.vectoramp.com/ingestion/sources',
+      'https://api.vectoramp.com/ingestion/sources',
+      'https://api.vectoramp.com/ingestion/sources',
+      'https://api.vectoramp.com/ingestion/sources',
+      'https://api.vectoramp.com/ingestion/sources',
+      'https://api.vectoramp.com/ingestion/jobs'
     ]);
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({
       source_type: 'web',
@@ -334,11 +639,13 @@ describe('VectorAmp client', () => {
     expect(JSON.parse(fetchMock.mock.calls[4][1].body as string)).toEqual({ source_type: 'file_upload', name: 'Local file upload', file_ids: ['file_1'] });
     expect(JSON.parse(fetchMock.mock.calls[5][1].body as string)).toEqual({ source_type: 'jira', include_comments: true, cloud_id: 'cloud_1', access_token: 'token', project_keys: ['ENG'] });
     expect(JSON.parse(fetchMock.mock.calls[6][1].body as string)).toEqual({ source_type: 'confluence', cloud_id: 'cloud_1', access_token: 'token', space_keys: ['DOCS'] });
+    // typedWeb -> create web source, then start the job
     expect(JSON.parse(fetchMock.mock.calls[7][1].body as string)).toEqual({
       source_type: 'web',
       uri: 'https://example.com/docs',
       config: { max_depth: 2 }
     });
+    expect(JSON.parse(fetchMock.mock.calls[8][1].body as string)).toEqual({ source_id: 'src_inline', dataset_id: 'ds' });
   });
 
   it('supports non-streaming ask and streaming SSE ask', async () => {
@@ -361,7 +668,7 @@ describe('VectorAmp client', () => {
     for await (const event of client.askStream({ question: 'stream me', datasetId: 'ds' })) events.push(event);
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({ query: 'What is VectorAmp?' });
-    expect(fetchMock.mock.calls[1][0]).toBe('https://api.vectoramp.com/api/v1/intelligence/query');
+    expect(fetchMock.mock.calls[1][0]).toBe('https://api.vectoramp.com/intelligence/query');
     expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ question: 'stream me', dataset_id: 'ds', stream: true });
     expect(events).toEqual([{ event: 'delta', data: { token: 'hi' } }, { data: 'plain' }]);
   });
@@ -374,7 +681,8 @@ describe('VectorAmp client', () => {
       .mockResolvedValueOnce(jsonResponse({ sessions: [{ id: 'sess_1' }] }))
       .mockResolvedValueOnce(jsonResponse({ id: 'sess_1', title: 'Planning' }))
       .mockResolvedValueOnce(jsonResponse({ id: 'msg_1', role: 'user', content: 'hello' }, { status: 201 }))
-      .mockResolvedValueOnce(jsonResponse({ messages: [{ id: 'msg_1', role: 'user', content: 'hello' }] }));
+      .mockResolvedValueOnce(jsonResponse({ messages: [{ id: 'msg_1', role: 'user', content: 'hello' }] }))
+      .mockResolvedValueOnce(jsonResponse(null, { status: 204 }));
     const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
 
     await expect(client.intelligence.createSession({ title: 'Planning', workspaceId: 'ws_1', datasetId: 'ds_1', metadata: { team: 'eng' } })).resolves.toMatchObject({ id: 'sess_1' });
@@ -382,14 +690,17 @@ describe('VectorAmp client', () => {
     await expect(client.intelligence.getSession('sess/1')).resolves.toMatchObject({ id: 'sess_1' });
     await expect(client.intelligence.appendMessage('sess/1', { role: 'user', content: 'hello', metadata: { turn: 1 } })).resolves.toMatchObject({ id: 'msg_1' });
     await expect(client.intelligence.listMessages('sess/1', { limit: 50 })).resolves.toEqual({ messages: [{ id: 'msg_1', role: 'user', content: 'hello' }] });
+    await expect(client.intelligence.deleteSession('sess/1')).resolves.toBeUndefined();
 
     expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
-      'https://api.vectoramp.com/api/v1/intelligence/sessions',
-      'https://api.vectoramp.com/api/v1/intelligence/sessions?limit=25',
-      'https://api.vectoramp.com/api/v1/intelligence/sessions/sess%2F1',
-      'https://api.vectoramp.com/api/v1/intelligence/sessions/sess%2F1/messages',
-      'https://api.vectoramp.com/api/v1/intelligence/sessions/sess%2F1/messages?limit=50'
+      'https://api.vectoramp.com/intelligence/sessions',
+      'https://api.vectoramp.com/intelligence/sessions?limit=25',
+      'https://api.vectoramp.com/intelligence/sessions/sess%2F1',
+      'https://api.vectoramp.com/intelligence/sessions/sess%2F1/messages',
+      'https://api.vectoramp.com/intelligence/sessions/sess%2F1/messages?limit=50',
+      'https://api.vectoramp.com/intelligence/sessions/sess%2F1'
     ]);
+    expect(fetchMock.mock.calls[5][1].method).toBe('DELETE');
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({ title: 'Planning', workspace_id: 'ws_1', dataset_id: 'ds_1', metadata: { team: 'eng' } });
     expect(JSON.parse(fetchMock.mock.calls[3][1].body as string)).toEqual({ role: 'user', content: 'hello', metadata: { turn: 1 } });
   });
@@ -492,21 +803,21 @@ describe('VectorAmp client', () => {
     await expect(client.schedules.update('sch_2', { enabled: false })).resolves.toMatchObject({ enabled: false });
     expect(fetchMock).toHaveBeenNthCalledWith(
       4,
-      'https://api.vectoramp.com/api/v1/ingestion/schedules/sch_2',
+      'https://api.vectoramp.com/ingestion/schedules/sch_2',
       expect.objectContaining({ method: 'PATCH' })
     );
 
     await expect(client.schedules.delete('sch_2')).resolves.toBeUndefined();
     expect(fetchMock).toHaveBeenNthCalledWith(
       5,
-      'https://api.vectoramp.com/api/v1/ingestion/schedules/sch_2',
+      'https://api.vectoramp.com/ingestion/schedules/sch_2',
       expect.objectContaining({ method: 'DELETE' })
     );
 
     await expect(client.schedules.trigger('sch_1')).resolves.toEqual({ jobId: 'job_42' });
     expect(fetchMock).toHaveBeenNthCalledWith(
       6,
-      'https://api.vectoramp.com/api/v1/ingestion/schedules/sch_1/trigger',
+      'https://api.vectoramp.com/ingestion/schedules/sch_1/trigger',
       expect.objectContaining({ method: 'POST' })
     );
   });

@@ -8,7 +8,7 @@ export interface RestTransportOptions {
   apiKey?: string;
   /** API origin, for example `https://api.vectoramp.com`. */
   baseUrl: string;
-  /** API prefix mounted under `baseUrl`, for example `/api/v1`. */
+  /** API prefix mounted under `baseUrl`. Defaults to `''`; the public gateway serves unprefixed paths. */
   apiPrefix: string;
   /** Custom fetch implementation. Defaults to `globalThis.fetch`. */
   fetch?: typeof fetch;
@@ -65,6 +65,32 @@ export class RestTransport implements Transport {
   async download(method: string, path: string, options: RequestOptions = {}): Promise<ArrayBuffer> {
     const response = await this.fetchRaw(method, path, options);
     return response.arrayBuffer();
+  }
+
+  /**
+   * PUT raw bytes to an absolute (presigned) URL.
+   *
+   * Presigned URLs are pre-authorized object-store URLs, so this bypasses the
+   * API prefix and the `X-API-Key` header.
+   *
+   * @param url - Absolute presigned URL.
+   * @param body - File bytes to upload.
+   * @param contentType - Optional content type sent with the upload.
+   */
+  async put(url: string, body: Uint8Array, contentType?: string): Promise<void> {
+    const response = await this.fetchImpl(url, {
+      method: 'PUT',
+      headers: contentType ? { 'Content-Type': contentType } : undefined,
+      body: body as BodyInit
+    });
+    if (!response.ok) {
+      throw new VectorAmpError(`Presigned file upload failed: ${response.status} ${response.statusText}`, {
+        status: response.status,
+        statusText: response.statusText,
+        url,
+        body: await parseBody(response)
+      });
+    }
   }
 
   /**

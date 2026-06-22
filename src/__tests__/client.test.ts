@@ -20,8 +20,9 @@ import {
 } from '../index.js';
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
-  return new Response(JSON.stringify(body), {
-    status: init.status ?? 200,
+  const status = init.status ?? 200;
+  return new Response(status === 204 ? null : JSON.stringify(body), {
+    status,
     headers: { 'content-type': 'application/json', ...(init.headers as Record<string, string> | undefined) }
   });
 }

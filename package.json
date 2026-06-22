@@ -16,7 +16,8 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "NOTICE"
   ],
   "sideEffects": false,
   "engines": {
@@ -37,16 +38,16 @@
     "rag",
     "sdk"
   ],
-  "author": "VectorAmp",
-  "license": "UNLICENSED",
+  "author": "VectorAmp, Inc.",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@gitlab.com/VectorAmp/SDK/Node.git"
+    "url": "git+https://github.com/vectoramp/vectoramp-node.git"
   },
   "bugs": {
-    "url": "https://gitlab.com/VectorAmp/SDK/Node/-/issues"
+    "url": "https://github.com/vectoramp/vectoramp-node/issues"
   },
-  "homepage": "https://vectoramp.com",
+  "homepage": "https://github.com/vectoramp/vectoramp-node#readme",
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@vitest/coverage-v8": "^4.1.5",

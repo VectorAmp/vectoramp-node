@@ -3,15 +3,19 @@ import type {
   FileUploadSourceOptions,
   GcsSourceOptions,
   GoogleDriveSourceOptions,
+  IngestionJob,
   IngestionSource,
   IngestionSourceInput,
   JiraSourceOptions,
+  Page,
+  PaginationParams,
   S3SourceOptions,
   SourceCreateInput,
   SourceType,
   Transport,
   WebSourceOptions
 } from './types.js';
+import { IngestionClient, type ListJobsParams, type StartJobRequest } from './ingestion.js';
 import { toSnakeCasePayload } from './utils.js';
 
 /**
@@ -100,9 +104,20 @@ export function genericSource(sourceType: SourceType | (string & {}), input: Rec
   return { ...input, source_type: sourceType };
 }
 
-/** Ingestion source creation API client. */
+/**
+ * Ingestion source creation API client.
+ *
+ * Exposed as both `client.sources` and `client.ingestion`. In addition to source
+ * creation helpers, it surfaces source listing/get and the ingestion job
+ * lifecycle (`startJob`, `listJobs`, `getJob`, `retryJob`) for a single
+ * ingestion entry point.
+ */
 export class SourcesClient {
-  constructor(private readonly transport: Transport) {}
+  private readonly jobs: IngestionClient;
+
+  constructor(private readonly transport: Transport) {
+    this.jobs = new IngestionClient(transport);
+  }
 
   /**
    * Create an ingestion source.
@@ -114,6 +129,66 @@ export class SourcesClient {
     return this.transport.request<IngestionSource>('POST', '/ingestion/sources', {
       body: toSnakeCasePayload(request)
     });
+  }
+
+  /**
+   * List ingestion sources for the current organization.
+   *
+   * @param params - Optional pagination params (`limit`, `offset`).
+   * @returns A page of ingestion sources.
+   */
+  list(params: PaginationParams = {}): Promise<Page<IngestionSource>> {
+    return this.jobs.listSources(params);
+  }
+
+  /**
+   * Fetch one ingestion source by id.
+   *
+   * @param sourceId - Source id.
+   * @returns The ingestion source.
+   */
+  get(sourceId: string): Promise<IngestionSource> {
+    return this.jobs.getSource(sourceId);
+  }
+
+  /**
+   * Start an ingestion job from an existing source.
+   *
+   * @param request - Source id, dataset id, and optional pipeline id.
+   * @returns The created ingestion job.
+   */
+  startJob(request: StartJobRequest): Promise<IngestionJob> {
+    return this.jobs.startJob(request);
+  }
+
+  /**
+   * List ingestion jobs.
+   *
+   * @param params - Optional `datasetId` filter and pagination params.
+   * @returns A page of ingestion jobs.
+   */
+  listJobs(params: ListJobsParams = {}): Promise<Page<IngestionJob>> {
+    return this.jobs.listJobs(params);
+  }
+
+  /**
+   * Fetch one ingestion job by id.
+   *
+   * @param jobId - Job id.
+   * @returns The ingestion job.
+   */
+  getJob(jobId: string): Promise<IngestionJob> {
+    return this.jobs.getJob(jobId);
+  }
+
+  /**
+   * Retry an eligible failed or cancelled ingestion job.
+   *
+   * @param jobId - Original ingestion job id.
+   * @returns The newly queued retry job.
+   */
+  retryJob(jobId: string): Promise<IngestionJob> {
+    return this.jobs.retryJob(jobId);
   }
 
   /**

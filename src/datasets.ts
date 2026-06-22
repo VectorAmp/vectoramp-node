@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { basename, join, relative } from 'node:path';
+import { basename, join } from 'node:path';
 import type {
   AddTextsInput,
   AddTextsRequest,
@@ -9,10 +9,11 @@ import type {
   Dataset,
   DatasetDocument,
   DatasetDocumentListParams,
-  IngestFile,
+  IngestFilesOptions,
   IngestFilesystemOptions,
-  IngestFilesystemRequest,
   IngestSourceInput,
+  IngestSourceOptions,
+  InitUploadResponse,
   IngestionJob,
   InsertVectorsRequest,
   Page,
@@ -25,6 +26,21 @@ import { embeddingDimensions, VECTORAMP_EMBEDDING_4B } from './embeddings.js';
 import { normalizePage, toSnakeCasePayload } from './utils.js';
 
 const TEXT_EXTENSIONS = new Set(['.txt', '.md', '.mdx', '.json', '.jsonl', '.csv', '.tsv', '.html', '.xml', '.yaml', '.yml']);
+const CONTENT_TYPES: Record<string, string> = {
+  '.txt': 'text/plain',
+  '.md': 'text/markdown',
+  '.mdx': 'text/markdown',
+  '.json': 'application/json',
+  '.jsonl': 'application/x-ndjson',
+  '.csv': 'text/csv',
+  '.tsv': 'text/tab-separated-values',
+  '.html': 'text/html',
+  '.xml': 'application/xml',
+  '.yaml': 'application/yaml',
+  '.yml': 'application/yaml',
+  '.pdf': 'application/pdf',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+};
 const DEFAULT_EMBEDDING_PROVIDER = 'vectoramp';
 const DEFAULT_EMBEDDING_MODEL = VECTORAMP_EMBEDDING_4B;
 
@@ -138,35 +154,37 @@ export class DatasetResource implements Dataset {
    */
   ask(request: string | AskRequest): Promise<AskResponse> {
     if (!this.client) throw new Error('dataset ask requires a VectorAmp client context');
-    const askRequest = typeof request === 'string' ? { question: request } : request;
+    const askRequest = typeof request === 'string' ? { query: request } : request;
     return this.client.ask({ ...askRequest, datasetId: this.id });
   }
 
   /**
    * Start ingestion from an existing or inline source for this dataset.
    *
-   * @param request - Source id string, source reference, or source creation-style input.
+   * @param request - Source id string, source reference, or source builder input (e.g. `webSource(...)`).
+   * @param options - Optional `pipelineId` override.
    * @returns The created ingestion job.
    */
-  ingestSource(request: IngestSourceInput): Promise<IngestionJob> {
-    return this.service.ingestSource(this.id, request);
+  ingestSource(request: IngestSourceInput, options: IngestSourceOptions = {}): Promise<IngestionJob> {
+    return this.service.ingestSource(this.id, request, options);
   }
 
   /**
-   * Ingest already-read local file contents into this dataset.
+   * Upload local files into this dataset via the presigned upload flow.
    *
-   * @param request - Files and optional source information. If no source id is supplied, a `file_upload` source is auto-created.
+   * @param paths - Local file paths to upload.
+   * @param options - Optional source name, description, and metadata.
    * @returns The created ingestion job.
    */
-  ingestFiles(request: IngestFilesystemRequest): Promise<IngestionJob> {
-    return this.service.ingestFiles(this.id, request);
+  ingestFiles(paths: string[], options: IngestFilesOptions = {}): Promise<IngestionJob> {
+    return this.service.ingestFiles(this.id, paths, options);
   }
 
   /**
-   * Read text files from disk and ingest them into this dataset.
+   * Read text files from disk recursively and upload them into this dataset.
    *
    * @param root - Directory to walk recursively.
-   * @param options - File filters, metadata, and optional source information.
+   * @param options - File filters, metadata, and optional source name.
    * @returns The created ingestion job.
    */
   ingestFilesystem(root: string, options: IngestFilesystemOptions = {}): Promise<IngestionJob> {
@@ -211,20 +229,38 @@ export class DatasetsClient {
    * @returns The created dataset resource.
    */
   async create(request: CreateDatasetRequest): Promise<DatasetResource> {
-    const { index_type: _ignoredIndexType, indexType: _ignoredIndexTypeCamel, ...safeRequest } = request as CreateDatasetRequest & {
+    // Strip control/alias fields so they never leak into the request body; the SDK
+    // forces SABLE, sends a single nested `embedding` object, and uses `dim`.
+    const {
+      index_type: _ignoredIndexType,
+      indexType: _ignoredIndexTypeCamel,
+      dimension: _dimension,
+      dim: _dim,
+      embedding: embeddingInput,
+      embeddingProvider,
+      embedding_provider: embeddingProviderSnake,
+      embeddingModel,
+      embedding_model: embeddingModelSnake,
+      ...safeRequest
+    } = request as CreateDatasetRequest & {
       index_type?: never;
       indexType?: never;
     };
 
     const embedding = {
-      provider: safeRequest.embeddingProvider ?? safeRequest.embedding_provider ?? safeRequest.embedding?.provider ?? DEFAULT_EMBEDDING_PROVIDER,
-      model: safeRequest.embeddingModel ?? safeRequest.embedding_model ?? safeRequest.embedding?.model ?? DEFAULT_EMBEDDING_MODEL,
-      ...(safeRequest.embedding ?? {})
+      provider: embeddingProvider ?? embeddingProviderSnake ?? embeddingInput?.provider ?? DEFAULT_EMBEDDING_PROVIDER,
+      model: embeddingModel ?? embeddingModelSnake ?? embeddingInput?.model ?? DEFAULT_EMBEDDING_MODEL,
+      ...(embeddingInput ?? {})
     };
-    const dimension = safeRequest.dimension ?? safeRequest.dim ?? embeddingDimensions[String(embedding.model)];
+    const dim = request.dim ?? request.dimension ?? embeddingDimensions[String(embedding.model)];
+    if (dim === undefined) {
+      throw new Error(
+        `Unable to infer vector dimension for embedding model "${embedding.model}". Pass "dim" explicitly when using a custom model.`
+      );
+    }
 
     const dataset = await this.transport.request<Dataset>('POST', '/datasets', {
-      body: toSnakeCasePayload({ ...safeRequest, dimension, embedding, indexType: 'sable' })
+      body: toSnakeCasePayload({ ...safeRequest, dim, embedding, indexType: 'sable' })
     });
     return this.toResource(dataset);
   }
@@ -284,7 +320,10 @@ export class DatasetsClient {
    */
   insert(id: string, vectorsOrRequest: VectorRecordInput[] | InsertVectorsRequest): Promise<unknown> {
     const request = Array.isArray(vectorsOrRequest) ? { vectors: vectorsOrRequest } : vectorsOrRequest;
-    return this.transport.request<unknown>('POST', `${datasetPath(id)}/vectors`, { body: toSnakeCasePayload(request) });
+    const vectors = (request.vectors ?? []).map(normalizeVectorRecord);
+    return this.transport.request<unknown>('POST', `${datasetPath(id)}/insert`, {
+      body: toSnakeCasePayload({ ...request, vectors })
+    });
   }
 
   /**
@@ -318,61 +357,125 @@ export class DatasetsClient {
   /**
    * Start ingestion from an existing or inline source.
    *
-   * @param id - Dataset id.
-   * @param request - Source id string, source reference, or source creation-style input.
-   * @returns The created ingestion job.
-   */
-  ingestSource(id: string, request: IngestSourceInput): Promise<IngestionJob> {
-    return this.transport.request<IngestionJob>('POST', `${datasetPath(id)}/ingestions/sources`, {
-      body: toSnakeCasePayload(normalizeIngestSourceInput(request))
-    });
-  }
-
-  /**
-   * Ingest already-read local file contents into a dataset.
+   * When `request` is a source id string the SDK starts a job directly. When it is
+   * a source builder/options object (e.g. from `webSource(...)`) the SDK first
+   * creates the source via `POST /ingestion/sources`, then starts the job via
+   * `POST /ingestion/jobs`.
    *
    * @param id - Dataset id.
-   * @param request - Files and optional source information. If no `sourceId`, `source_id`, or `source` is supplied, a `file_upload` source is auto-created.
+   * @param request - Source id string, source reference, or source creation-style input.
+   * @param options - Optional `pipelineId` override.
    * @returns The created ingestion job.
    */
-  async ingestFiles(id: string, request: IngestFilesystemRequest): Promise<IngestionJob> {
-    const body = await this.withLocalFileSource(request);
-    return this.transport.request<IngestionJob>('POST', `${datasetPath(id)}/ingestions/filesystem`, {
-      body: toSnakeCasePayload(body)
+  async ingestSource(id: string, request: IngestSourceInput, options: IngestSourceOptions = {}): Promise<IngestionJob> {
+    if (!id) throw new Error('dataset id is required');
+    const sourceId = await this.resolveSourceId(request);
+    return this.transport.request<IngestionJob>('POST', '/ingestion/jobs', {
+      body: toSnakeCasePayload({
+        sourceId,
+        datasetId: id,
+        pipelineId: options.pipelineId
+      })
     });
   }
 
   /**
-   * Read text files from disk and ingest them into a dataset.
+   * Upload local files into a dataset and start ingestion.
+   *
+   * Hides the full presigned upload flow: the SDK auto-creates a `file_upload`
+   * source, initializes presigned uploads (`POST /ingestion/sources/{id}/upload/init`),
+   * PUTs each file to its presigned URL, then completes the upload
+   * (`POST /ingestion/sources/{id}/upload/complete`).
+   *
+   * @param id - Dataset id.
+   * @param paths - Local file paths to upload.
+   * @param options - Optional source name, description, and metadata.
+   * @returns The created ingestion job.
+   */
+  async ingestFiles(id: string, paths: string[], options: IngestFilesOptions = {}): Promise<IngestionJob> {
+    if (!id) throw new Error('dataset id is required');
+    if (!this.transport.put) {
+      throw new Error('Configured transport does not support presigned file uploads.');
+    }
+    if (!Array.isArray(paths) || paths.length === 0) {
+      throw new Error('ingestFiles requires at least one file path.');
+    }
+
+    const source = await this.transport.request<{ id?: string; source_id?: string }>('POST', '/ingestion/sources', {
+      body: toSnakeCasePayload({
+        sourceType: 'file_upload',
+        name: options.sourceName ?? defaultFileUploadSourceName(paths[0]),
+        description: options.description,
+        config: { storageProvider: 's3', syncMode: 'full' },
+        metadata: { datasetId: id, ...(options.metadata ?? {}) }
+      })
+    });
+    const sourceId = source.id ?? source.source_id;
+    if (!sourceId) throw new Error('VectorAmp API did not return an id for the auto-created file upload source');
+
+    const descriptors = await Promise.all(paths.map((path) => fileDescriptor(path)));
+    const init = await this.transport.request<InitUploadResponse>('POST', `/ingestion/sources/${encodeURIComponent(sourceId)}/upload/init`, {
+      body: toSnakeCasePayload({ files: descriptors.map(({ name, sizeBytes, contentType }) => ({ name, sizeBytes, contentType })) })
+    });
+
+    const uploads = init.uploads ?? [];
+    if (uploads.length !== paths.length) {
+      throw new Error(`Upload init returned ${uploads.length} targets for ${paths.length} files.`);
+    }
+
+    const fileIds: string[] = [];
+    for (let index = 0; index < uploads.length; index += 1) {
+      const upload = uploads[index];
+      const uploadUrl = upload.uploadUrl ?? upload.upload_url;
+      const fileId = upload.fileId ?? upload.file_id;
+      if (!uploadUrl || !fileId) throw new Error('Upload init response was missing an upload_url or file_id.');
+      await this.transport.put(uploadUrl, descriptors[index].content, descriptors[index].contentType);
+      fileIds.push(fileId);
+    }
+
+    const jobId = init.jobId ?? init.job_id;
+    const job = await this.transport.request<IngestionJob>('POST', `/ingestion/sources/${encodeURIComponent(sourceId)}/upload/complete`, {
+      body: toSnakeCasePayload({ jobId, fileIds })
+    });
+    if (job && typeof job === 'object' && !job.id && !('job_id' in job) && jobId) {
+      (job as IngestionJob).id = jobId;
+    }
+    return job;
+  }
+
+  /**
+   * Read text files from disk recursively and upload them into a dataset.
+   *
+   * Walks `root`, collects common text files, then routes through {@link ingestFiles}
+   * (auto-created `file_upload` source + presigned upload flow).
    *
    * @param id - Dataset id.
    * @param root - Directory to walk recursively.
-   * @param options - File filters, metadata, and optional source information.
+   * @param options - File filters, metadata, and optional source name.
    * @returns The created ingestion job.
    */
   async ingestFilesystem(id: string, root: string, options: IngestFilesystemOptions = {}): Promise<IngestionJob> {
-    const files = await collectTextFiles(root, options);
-    return this.ingestFiles(id, {
-      root,
-      files,
-      metadata: options.metadata,
-      source: options.source,
-      sourceId: options.sourceId,
-      source_id: options.source_id,
-      sourceName: options.sourceName
+    const paths = await collectTextFilePaths(root, options);
+    if (paths.length === 0) throw new Error(`No matching files found under ${root}.`);
+    return this.ingestFiles(id, paths, {
+      sourceName: options.sourceName ?? defaultFileUploadSourceName(root),
+      metadata: options.metadata
     });
   }
 
-  private async withLocalFileSource(request: IngestFilesystemRequest): Promise<IngestFilesystemRequest> {
-    const explicitSourceId = request.sourceId ?? request.source_id ?? request.source;
-    if (explicitSourceId) return withCanonicalSourceId(request, explicitSourceId);
+  /** Resolve an ingest-source input to a concrete source id, creating the source when needed. */
+  private async resolveSourceId(request: IngestSourceInput): Promise<string> {
+    if (typeof request === 'string') return request;
 
-    const source = await this.transport.request<{ id?: string }>('POST', '/ingestion/sources', {
-      body: toSnakeCasePayload({ sourceType: 'file_upload', name: request.sourceName ?? defaultFileUploadSourceName(request.root) })
+    const existing = request.sourceId ?? request.source_id ?? request.source;
+    if (typeof existing === 'string' && existing && !('source_type' in request)) return existing;
+
+    const created = await this.transport.request<{ id?: string; source_id?: string }>('POST', '/ingestion/sources', {
+      body: toSnakeCasePayload(request)
     });
-    if (!source.id) throw new Error('VectorAmp API did not return an id for the auto-created file upload source');
-
-    return withCanonicalSourceId(request, source.id);
+    const sourceId = created.id ?? created.source_id;
+    if (!sourceId) throw new Error('VectorAmp API did not return an id for the created ingestion source.');
+    return sourceId;
   }
 
   private toResource(dataset: Dataset): DatasetResource {
@@ -385,6 +488,19 @@ type VectorRecordInput = InsertVectorsRequest['vectors'][number];
 function datasetPath(id: string): string {
   if (!id) throw new Error('dataset id is required');
   return `/datasets/${encodeURIComponent(id)}`;
+}
+
+/**
+ * Normalize a vector record so the array is sent under the canonical `values`
+ * field the API expects. `vector` is accepted as a legacy alias.
+ */
+function normalizeVectorRecord(record: VectorRecordInput): Record<string, unknown> {
+  const entry = record as Record<string, unknown>;
+  if (entry.values === undefined && entry.vector !== undefined) {
+    const { vector, ...rest } = entry;
+    return { ...rest, values: vector };
+  }
+  return entry;
 }
 
 function normalizeSearchRequest(request: SearchInput): unknown {
@@ -407,27 +523,45 @@ function normalizeAddTextsRequest(textsOrRequest: AddTextsInput): AddTextsReques
   return Array.isArray(textsOrRequest) ? { texts: textsOrRequest } : textsOrRequest;
 }
 
-function normalizeIngestSourceInput(request: IngestSourceInput): IngestSourceInput | { sourceId: string } {
-  return typeof request === 'string' ? { sourceId: request } : request;
+function defaultFileUploadSourceName(pathOrRoot?: string): string {
+  const label = pathOrRoot ? basename(pathOrRoot) || pathOrRoot : undefined;
+  return label ? `file-upload-${label}` : 'file-upload';
 }
 
-function defaultFileUploadSourceName(root?: string): string {
-  const label = root ? basename(root) || root : undefined;
-  return label ? `Local files: ${label}` : 'Local file upload';
+interface FileDescriptor {
+  /** Filename sent to the upload init endpoint. */
+  name: string;
+  /** File size in bytes. */
+  sizeBytes: number;
+  /** Detected content type. */
+  contentType: string;
+  /** Raw file bytes to PUT to the presigned URL. */
+  content: Uint8Array;
 }
 
-function withCanonicalSourceId(request: IngestFilesystemRequest, sourceId: string): IngestFilesystemRequest {
-  const { sourceName: _sourceName, source: _source, sourceId: _sourceId, source_id: _sourceIdSnake, ...rest } = request;
-  return { ...rest, sourceId };
+async function fileDescriptor(path: string): Promise<FileDescriptor> {
+  const info = await stat(path);
+  const content = await readFile(path);
+  return {
+    name: basename(path),
+    sizeBytes: info.size,
+    contentType: guessContentType(path),
+    content
+  };
 }
 
-async function collectTextFiles(
+function guessContentType(path: string): string {
+  const extension = path.includes('.') ? path.slice(path.lastIndexOf('.')).toLowerCase() : '';
+  return CONTENT_TYPES[extension] ?? 'application/octet-stream';
+}
+
+async function collectTextFilePaths(
   root: string,
   options: { extensions?: string[]; maxBytesPerFile?: number }
-): Promise<IngestFile[]> {
+): Promise<string[]> {
   const extensions = options.extensions ? new Set(options.extensions.map((ext) => ext.toLowerCase())) : TEXT_EXTENSIONS;
   const maxBytes = options.maxBytesPerFile ?? 1024 * 1024;
-  const files: IngestFile[] = [];
+  const paths: string[] = [];
 
   async function walk(directory: string): Promise<void> {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -441,10 +575,10 @@ async function collectTextFiles(
       if (!extensions.has(extension)) continue;
       const info = await stat(absolute);
       if (info.size > maxBytes) continue;
-      files.push({ path: relative(root, absolute), content: await readFile(absolute, 'utf8') });
+      paths.push(absolute);
     }
   }
 
   await walk(root);
-  return files;
+  return paths;
 }

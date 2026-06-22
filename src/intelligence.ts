@@ -57,6 +57,11 @@ export class IntelligenceClient {
     return this.transport.request<IntelligenceSession>('GET', `/intelligence/sessions/${encodeURIComponent(id)}`);
   }
 
+  /** Delete a persistent Intelligence session. */
+  deleteSession(id: string): Promise<void> {
+    return this.transport.request<void>('DELETE', `/intelligence/sessions/${encodeURIComponent(id)}`);
+  }
+
   /** Append a message to a persistent Intelligence session. */
   appendMessage(sessionId: string, input: CreateSessionMessageRequest): Promise<SessionMessage> {
     return this.transport.request<SessionMessage>('POST', `/intelligence/sessions/${encodeURIComponent(sessionId)}/messages`, {

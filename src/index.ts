@@ -1,4 +1,5 @@
 export { VectorAmpClient, VectorAmpClient as VectorAmp, createClient, DEFAULT_API_PREFIX, DEFAULT_BASE_URL } from './client.js';
+export { ConnectionsClient } from './connections.js';
 export { DatasetResource, DatasetsClient } from './datasets.js';
 export {
   embeddings,

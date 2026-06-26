@@ -1,3 +1,4 @@
+import { ConnectionsClient } from './connections.js';
 import { DatasetsClient } from './datasets.js';
 import { IntelligenceClient } from './intelligence.js';
 import { IngestionClient } from './ingestion.js';
@@ -23,6 +24,8 @@ export class VectorAmpClient {
   readonly ingestion: IngestionClient;
   /** Ingestion schedule management helpers. */
   readonly schedules: SchedulesClient;
+  /** Managed OAuth connection helpers. */
+  readonly connections: ConnectionsClient;
   /** Transport used by all sub-clients. */
   readonly transport: Transport;
 
@@ -44,6 +47,7 @@ export class VectorAmpClient {
     this.sources = new SourcesClient(this.transport);
     this.ingestion = new IngestionClient(this.transport);
     this.schedules = new SchedulesClient(this.transport);
+    this.connections = new ConnectionsClient(this.transport);
     this.datasets = new DatasetsClient(this.transport, { client: this });
   }
 

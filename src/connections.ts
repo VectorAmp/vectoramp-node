@@ -4,8 +4,10 @@ import type {
   ConnectOptions,
   CreateConnectionOptions,
   ListConnectionsOptions,
+  Page,
   Transport
 } from './types.js';
+import { normalizePage } from './utils.js';
 
 /** Default poll interval, in milliseconds, used by {@link ConnectionsClient.connect}. */
 const DEFAULT_POLL_INTERVAL_MS = 2000;
@@ -33,13 +35,17 @@ export class ConnectionsClient {
   /**
    * List managed OAuth connections.
    *
+   * The API returns a `{ connections, total }` envelope; this normalizes it into
+   * the same {@link Page} shape every other list method returns (`data`, `total`).
+   *
    * @param opts - Optional `provider` filter (`google` or `atlassian`).
-   * @returns The matching connections.
+   * @returns A page of the matching connections.
    */
-  list(opts: ListConnectionsOptions = {}): Promise<Connection[]> {
-    return this.transport.request<Connection[]>('GET', '/connections', {
+  async list(opts: ListConnectionsOptions = {}): Promise<Page<Connection>> {
+    const payload = await this.transport.request<unknown>('GET', '/connections', {
       query: { provider: opts.provider }
     });
+    return normalizePage<Connection>(payload, undefined, 'connections');
   }
 
   /**

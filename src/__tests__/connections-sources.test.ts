@@ -185,11 +185,16 @@ describe('Typed OAuth source builders', () => {
 describe('ConnectionsClient', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('lists connections and forwards the provider filter', async () => {
-    const { transport, calls } = recordingTransport([[{ id: 'conn_1', provider: 'google' }]]);
+  it('lists connections, unwraps the { connections, total } envelope, and forwards the provider filter', async () => {
+    const { transport, calls } = recordingTransport([
+      { connections: [{ id: 'conn_1', provider: 'google' }], total: 1 }
+    ]);
     const client = new VectorAmp({ transport });
 
-    await client.connections.list({ provider: 'google' });
+    const page = await client.connections.list({ provider: 'google' });
+
+    expect(page.data).toEqual([{ id: 'conn_1', provider: 'google' }]);
+    expect(page.total).toBe(1);
 
     expect(calls[0][0]).toBe('GET');
     expect(calls[0][1]).toBe('/connections');

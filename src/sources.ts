@@ -1,22 +1,38 @@
 import type {
+  CleanupUnusedResponse,
   ConfluenceSourceOptions,
+  DeleteSourceOptions,
   FileUploadSourceOptions,
   GcsSourceOptions,
   GoogleDriveSourceOptions,
   IngestionJob,
   IngestionSource,
   IngestionSourceInput,
+  JsonObject,
   JiraSourceOptions,
   Page,
   PaginationParams,
   S3SourceOptions,
   SourceCreateInput,
+  SourceReferences,
   SourceType,
+  SourceValidationResult,
   Transport,
   WebSourceOptions
 } from './types.js';
 import { IngestionClient, type ListJobsParams, type StartJobRequest } from './ingestion.js';
-import { toSnakeCasePayload } from './utils.js';
+import { normalizePage, toSnakeCasePayload } from './utils.js';
+
+/**
+ * Merge typed OAuth/connection fields into a source `config`, dropping `undefined`
+ * values. Returns the original config (possibly `undefined`) when there is nothing
+ * to add so existing builder output is preserved byte-for-byte.
+ */
+function withSourceConfig(existing: JsonObject | undefined, additions: Record<string, unknown>): JsonObject | undefined {
+  const defined = Object.fromEntries(Object.entries(additions).filter(([, value]) => value !== undefined));
+  if (Object.keys(defined).length === 0) return existing;
+  return { ...(existing ?? {}), ...defined };
+}
 
 /**
  * Build a web ingestion source payload.
@@ -49,7 +65,9 @@ export function s3Source(input: string | S3SourceOptions): IngestionSourceInput 
  */
 export function gcsSource(input: string | GcsSourceOptions): IngestionSourceInput {
   if (typeof input === 'string') return { source_type: 'gcs', uri: input };
-  return { ...input, source_type: 'gcs' };
+  const { connection, connectionId, config, ...rest } = input;
+  const mergedConfig = withSourceConfig(config, { connection_id: connectionId ?? connection });
+  return { ...rest, source_type: 'gcs', ...(mergedConfig ? { config: mergedConfig } : {}) };
 }
 
 /**
@@ -60,7 +78,14 @@ export function gcsSource(input: string | GcsSourceOptions): IngestionSourceInpu
  */
 export function googleDriveSource(input: string | GoogleDriveSourceOptions): IngestionSourceInput {
   if (typeof input === 'string') return { source_type: 'gdrive', uri: input };
-  return { ...input, source_type: 'gdrive' };
+  const { authMode, serviceAccountJson, oauthCredentials, connection, connectionId, config, ...rest } = input;
+  const mergedConfig = withSourceConfig(config, {
+    auth_mode: authMode,
+    service_account_json: serviceAccountJson,
+    oauth_credentials: oauthCredentials,
+    connection_id: connectionId ?? connection
+  });
+  return { ...rest, source_type: 'gdrive', ...(mergedConfig ? { config: mergedConfig } : {}) };
 }
 
 /**
@@ -80,7 +105,9 @@ export function fileUploadSource(input: FileUploadSourceOptions = {}): Ingestion
  * @returns Source creation input with `source_type: "jira"`.
  */
 export function jiraSource(input: JiraSourceOptions): IngestionSourceInput {
-  return { includeComments: true, ...input, source_type: 'jira' };
+  const { connection, connectionId, config, ...rest } = input;
+  const mergedConfig = withSourceConfig(config, { connection_id: connectionId ?? connection });
+  return { includeComments: true, ...rest, source_type: 'jira', ...(mergedConfig ? { config: mergedConfig } : {}) };
 }
 
 /**
@@ -90,7 +117,9 @@ export function jiraSource(input: JiraSourceOptions): IngestionSourceInput {
  * @returns Source creation input with `source_type: "confluence"`.
  */
 export function confluenceSource(input: ConfluenceSourceOptions): IngestionSourceInput {
-  return { ...input, source_type: 'confluence' };
+  const { connection, connectionId, config, ...rest } = input;
+  const mergedConfig = withSourceConfig(config, { connection_id: connectionId ?? connection });
+  return { ...rest, source_type: 'confluence', ...(mergedConfig ? { config: mergedConfig } : {}) };
 }
 
 /**
@@ -149,6 +178,62 @@ export class SourcesClient {
    */
   get(sourceId: string): Promise<IngestionSource> {
     return this.jobs.getSource(sourceId);
+  }
+
+  /**
+   * Delete an ingestion source.
+   *
+   * @param sourceId - Source id.
+   * @param opts - Set `force: true` to delete even when the source is still referenced.
+   * @returns Resolves when the API accepts the deletion.
+   */
+  async delete(sourceId: string, opts: DeleteSourceOptions = {}): Promise<void> {
+    await this.transport.request<unknown>('DELETE', `/ingestion/sources/${encodeURIComponent(sourceId)}`, {
+      query: opts.force ? { force: true } : undefined
+    });
+  }
+
+  /**
+   * List ingestion sources that are not referenced by any job or schedule.
+   *
+   * @param opts - Optional pagination params (`limit`, `offset`).
+   * @returns A page of unused ingestion sources.
+   */
+  async listUnused(opts: PaginationParams = {}): Promise<Page<IngestionSource>> {
+    const payload = await this.transport.request<unknown>('GET', '/ingestion/sources/unused', { query: { ...opts } });
+    return normalizePage<IngestionSource>(payload, opts, 'sources');
+  }
+
+  /**
+   * Delete all unused ingestion sources for the current organization.
+   *
+   * @returns The deleted sources and a count.
+   */
+  cleanupUnused(): Promise<CleanupUnusedResponse> {
+    return this.transport.request<CleanupUnusedResponse>('POST', '/ingestion/sources/cleanup');
+  }
+
+  /**
+   * List the jobs, schedules, and datasets that reference a source.
+   *
+   * @param sourceId - Source id.
+   * @returns The source's references.
+   */
+  getReferences(sourceId: string): Promise<SourceReferences> {
+    return this.transport.request<SourceReferences>('GET', `/ingestion/sources/${encodeURIComponent(sourceId)}/references`);
+  }
+
+  /**
+   * Validate an ingestion source config without creating the source.
+   *
+   * @param sourceType - Source type to validate against.
+   * @param config - Provider-specific configuration to validate.
+   * @returns The validation result.
+   */
+  validate(sourceType: SourceType | (string & {}), config: JsonObject): Promise<SourceValidationResult> {
+    return this.transport.request<SourceValidationResult>('POST', '/ingestion/sources/validate', {
+      body: toSnakeCasePayload({ sourceType, config })
+    });
   }
 
   /**

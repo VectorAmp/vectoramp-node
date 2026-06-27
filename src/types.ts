@@ -299,7 +299,14 @@ export interface GcsSourceOptions extends BaseSourceOptions {
   prefix?: string;
   /** Optional Google Cloud project id. */
   projectId?: string;
+  /** Managed connection id to reuse stored OAuth credentials. Serialized to `config.connection_id`. */
+  connection?: string;
+  /** Managed connection id alias. Serialized to `config.connection_id`. */
+  connectionId?: string;
 }
+
+/** Auth mode accepted by typed Google Drive/GCS OAuth source options. */
+export type SourceAuthMode = 'service_account' | 'oauth' | (string & {});
 
 /** Google Drive source options. */
 export interface GoogleDriveSourceOptions extends BaseSourceOptions {
@@ -307,6 +314,16 @@ export interface GoogleDriveSourceOptions extends BaseSourceOptions {
   folderId?: string;
   /** Drive file id. */
   fileId?: string;
+  /** Auth mode for Drive access. Defaults to `service_account` on the server. Serialized to `config.auth_mode`. */
+  authMode?: SourceAuthMode;
+  /** Service account JSON (string or parsed object). Serialized to `config.service_account_json`. */
+  serviceAccountJson?: string | JsonObject;
+  /** OAuth credentials blob. Serialized to `config.oauth_credentials`. */
+  oauthCredentials?: JsonObject;
+  /** Managed connection id to reuse stored OAuth credentials. Serialized to `config.connection_id`. */
+  connection?: string;
+  /** Managed connection id alias. Serialized to `config.connection_id`. */
+  connectionId?: string;
 }
 
 /** File-upload source options. */
@@ -327,6 +344,10 @@ export interface JiraSourceOptions extends BaseSourceOptions {
   jql?: string;
   /** Include issue comments. Defaults to true in SDK helpers. */
   includeComments?: boolean;
+  /** Managed connection id to reuse stored OAuth credentials. Serialized to `config.connection_id`. */
+  connection?: string;
+  /** Managed connection id alias. Serialized to `config.connection_id`. */
+  connectionId?: string;
 }
 
 /** Confluence source options. */
@@ -337,6 +358,10 @@ export interface ConfluenceSourceOptions extends BaseSourceOptions {
   accessToken?: string;
   /** Confluence space keys to ingest. */
   spaceKeys?: string[];
+  /** Managed connection id to reuse stored OAuth credentials. Serialized to `config.connection_id`. */
+  connection?: string;
+  /** Managed connection id alias. Serialized to `config.connection_id`. */
+  connectionId?: string;
 }
 
 /** Source creation payload with a required source type. */
@@ -366,6 +391,119 @@ export interface IngestionSource {
   metadata?: JsonObject;
   /** Additional API fields. */
   [key: string]: unknown;
+}
+
+/** Options for {@link SourcesClient.delete}. */
+export interface DeleteSourceOptions {
+  /** Force deletion even when the source is still referenced. Sends `?force=true`. */
+  force?: boolean;
+}
+
+/** One source returned by the unused-source cleanup endpoint. */
+export interface CleanupUnusedSource {
+  /** Source id. */
+  id?: string;
+  /** Source name. */
+  name?: string;
+  /** Source type. */
+  type?: string;
+  /** Additional API fields. */
+  [key: string]: unknown;
+}
+
+/** Response returned by `POST /ingestion/sources/cleanup`. */
+export interface CleanupUnusedResponse {
+  /** Sources that were deleted. */
+  deleted: CleanupUnusedSource[];
+  /** Number of sources deleted. */
+  count: number;
+  /** Additional API fields. */
+  [key: string]: unknown;
+}
+
+/** One schedule that references an ingestion source. */
+export interface SourceScheduleReference {
+  id: string;
+  name?: string;
+}
+
+/**
+ * What currently depends on an ingestion source: the active schedules and
+ * in-flight jobs that make it "in use" (not safe to remove). Returned by
+ * `GET /ingestion/sources/{id}/references`.
+ */
+export interface SourceReferences {
+  /** Active schedules referencing the source. */
+  schedules: SourceScheduleReference[];
+  /** Number of active schedules. */
+  schedule_count: number;
+  /** Number of in-flight (pending/running) jobs. */
+  active_job_count: number;
+  /** True if the source is referenced by any active schedule or in-flight job. */
+  in_use: boolean;
+  /** Additional API fields. */
+  [key: string]: unknown;
+}
+
+/** Result of validating an ingestion source config (`POST /ingestion/sources/validate`). */
+export interface SourceValidationResult {
+  /** Whether the source config is valid. */
+  success?: boolean;
+  /** Human-readable validation message. */
+  message?: string;
+  /** The normalized (defaults-filled, redacted) config. */
+  normalized_config?: JsonObject;
+  /** Sample records, when the connector previews them. */
+  samples?: unknown[];
+  /** Non-fatal warnings. */
+  warnings?: string[];
+  /** Additional API fields. */
+  [key: string]: unknown;
+}
+
+/** External OAuth provider supported by managed connections. */
+export type ConnectionProvider = 'google' | 'atlassian' | (string & {});
+
+/** Managed OAuth connection returned by the API. */
+export interface Connection {
+  /** Connection id. */
+  id?: string;
+  /** Provider, e.g. `google` or `atlassian`. */
+  provider?: string;
+  /** Connection status, e.g. `pending` or `connected`. */
+  status?: string;
+  /** Authorization URL to complete the OAuth flow (camelCase convenience alias). */
+  authorizationUrl?: string;
+  /** Authorization URL in snake_case, as returned by the API. */
+  authorization_url?: string;
+  /** Source type the connection is scoped to, when applicable. */
+  sourceType?: string;
+  /** Source type in snake_case. */
+  source_type?: string;
+  /** Additional API fields. */
+  [key: string]: unknown;
+}
+
+/** Options for {@link ConnectionsClient.list}. */
+export interface ListConnectionsOptions {
+  /** Filter by provider. */
+  provider?: ConnectionProvider;
+}
+
+/** Options for {@link ConnectionsClient.create}. */
+export interface CreateConnectionOptions {
+  /** Source type the connection should target. */
+  sourceType?: 'gdrive' | 'gcs' | (string & {});
+}
+
+/** Options for the {@link ConnectionsClient.connect} convenience flow. */
+export interface ConnectOptions extends CreateConnectionOptions {
+  /** Callback invoked with the authorization URL. Defaults to logging an instruction to stdout. */
+  onUrl?: (url: string) => void;
+  /** Poll interval in milliseconds while waiting for the connection. Defaults to 2000. */
+  pollIntervalMs?: number;
+  /** Overall timeout in milliseconds before giving up. Defaults to 300000. */
+  timeoutMs?: number;
 }
 
 /** Request to ingest from an existing source by reference. */

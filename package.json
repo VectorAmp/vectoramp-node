@@ -1,5 +1,5 @@
 {
-  "name": "@vectoramp/vectoramp",
+  "name": "@vectorampdb/sdk",
   "version": "0.1.0",
   "description": "Official VectorAmp Node.js SDK",
   "type": "module",

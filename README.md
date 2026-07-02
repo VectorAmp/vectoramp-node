@@ -21,13 +21,13 @@ Official TypeScript/JavaScript SDK for [VectorAmp](https://vectoramp.com).
 ## Install
 
 ```bash
-npm install @vectoramp/vectoramp
+npm install @vectorampdb/sdk
 ```
 
 ## Quick start
 
 ```ts
-import { VectorAmp } from '@vectoramp/vectoramp';
+import { VectorAmp } from '@vectorampdb/sdk';
 
 // Reads VECTORAMP_API_KEY from the environment when apiKey is omitted.
 const client = new VectorAmp();
@@ -75,7 +75,7 @@ public gateway (the `apiPrefix` option defaults to `''`).
 const dataset = await client.datasets.create({ name: 'docs' });
 
 // Custom embeddings infer the dimension automatically for built-in models.
-import { openai } from '@vectoramp/vectoramp';
+import { openai } from '@vectorampdb/sdk';
 const openaiDataset = await client.datasets.create({ name: 'docs', embedding: openai('large') });
 
 // Custom/unknown models require an explicit dim.
@@ -148,7 +148,7 @@ Source builders keep payloads typed while matching the REST `source_type` contra
 (`web`, `s3`, `gcs`, `gdrive`, `file_upload`, `jira`, `confluence`).
 
 ```ts
-import { webSource, s3Source, confluenceSource } from '@vectoramp/vectoramp';
+import { webSource, s3Source, confluenceSource } from '@vectorampdb/sdk';
 
 // One-liner: the SDK creates the source, then starts the ingestion job.
 await dataset.ingestSource(webSource('https://docs.example.com'));
@@ -314,7 +314,7 @@ The public transport interface keeps the SDK ready for gRPC or internal transpor
 changing developer UX:
 
 ```ts
-import type { Transport } from '@vectoramp/vectoramp';
+import type { Transport } from '@vectorampdb/sdk';
 
 const transport: Transport = {
   async request(method, path, options) {

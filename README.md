@@ -71,12 +71,14 @@ public gateway (the `apiPrefix` option defaults to `''`).
 (`id`, `name`, `metadata`, …) plus instance methods for dataset-scoped operations.
 
 ```ts
-// Minimal create: only a name is required.
+// Minimal create: only a name is required. Embedding config is omitted so
+// VectorAmp uses the managed VectorAmp-Embedding-4B model and infers dim 2560.
 const dataset = await client.datasets.create({ name: 'docs' });
 
-// Custom embeddings infer the dimension automatically for built-in models.
+// Optional BYOM: use OpenAI only when you intentionally want that provider.
+// Built-in OpenAI dimensions are inferred automatically.
 import { openai } from '@vectoramp/vectoramp';
-const openaiDataset = await client.datasets.create({ name: 'docs', embedding: openai('large') });
+const openaiDataset = await client.datasets.create({ name: 'openai-docs', embedding: openai('large') });
 
 // Custom/unknown models require an explicit dim.
 const customDataset = await client.datasets.create({
@@ -95,8 +97,7 @@ console.log(page.data, page.total, page.nextOffset);
 await dataset.delete();
 ```
 
-Built-in dimension inference: `vectoramp/VectorAmp-Embedding-4B → 2560`,
-`openai/text-embedding-3-small → 1536`, `openai/text-embedding-3-large → 3072`.
+Default dimension inference: omit `embedding` to use `vectoramp/VectorAmp-Embedding-4B → 2560`. Optional BYOM inference also supports `openai/text-embedding-3-small → 1536` and `openai/text-embedding-3-large → 3072`.
 
 ## Insert vectors
 

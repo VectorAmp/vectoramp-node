@@ -133,6 +133,10 @@ export interface CreateDatasetRequest {
   embedding_model?: string;
   /** Nested embedding config accepted by the API. Use `openai('small')` or `openai('large')` for OpenAI BYOM. */
   embedding?: Partial<EmbeddingConfig>;
+  /** Save/update this organization's OpenAI API key before creating the dataset. Forces OpenAI defaults when no embedding is supplied. */
+  openaiApiKey?: string;
+  /** Snake_case alias for `openaiApiKey`. */
+  openai_api_key?: string;
   /** Distance metric. Defaults to `cosine` on the server when omitted. */
   metric?: string;
   /** Enable hybrid (dense + sparse) indexing for this dataset. Maps to `hybrid: true` in the create body. */
@@ -239,6 +243,35 @@ export interface InsertVectorsRequest {
   [key: string]: unknown;
 }
 
+/** Request to delete vectors from a dataset. */
+export interface DeleteVectorsRequest {
+  /** Vector ids to delete. */
+  ids: VectorRecordId[];
+  /** Optional write concern forwarded to the API, e.g. `all` for strongly replicated deletes. */
+  writeConcern?: string;
+  /** Snake_case alias for `writeConcern`. */
+  write_concern?: string;
+  /** Additional API fields. */
+  [key: string]: unknown;
+}
+
+/** Delete-vectors input: one vector id, vector ids, or a full request. */
+export type DeleteVectorsInput = VectorRecordId | VectorRecordId[] | DeleteVectorsRequest;
+
+/** Response returned by dataset vector deletion. */
+export interface DeleteVectorsResponse {
+  /** Number of vector ids requested for deletion, when returned. */
+  requested?: number;
+  /** Number of vectors deleted, when returned. */
+  deleted?: number;
+  /** Dataset id, when returned. */
+  datasetId?: string;
+  /** Dataset id in snake_case, when returned. */
+  dataset_id?: string;
+  /** Additional API fields. */
+  [key: string]: unknown;
+}
+
 /** Request to add text records to a dataset. */
 export interface AddTextsRequest {
   /** Text strings or text records with optional ids and metadata. */
@@ -253,6 +286,14 @@ export interface AddTextsRequest {
 
 /** Add-texts input: one string, text records, or a full request. */
 export type AddTextsInput = string | AddTextsRequest['texts'] | AddTextsRequest;
+
+/** Presence status for organization-scoped OpenAI credentials. */
+export interface OpenAISecretStatus {
+  /** True when the org has a saved OpenAI API key. */
+  exists: boolean;
+  /** Secret reference to use in embedding configs. */
+  secretRef: 'emb:openai:api_key';
+}
 
 /** Built-in ingestion source types. */
 export type SourceType = 's3' | 'web' | 'gcs' | 'gdrive' | 'file_upload' | 'jira' | 'confluence';

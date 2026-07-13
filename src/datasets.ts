@@ -9,6 +9,9 @@ import type {
   Dataset,
   DatasetDocument,
   DatasetDocumentListParams,
+  DeleteVectorsInput,
+  DeleteVectorsRequest,
+  DeleteVectorsResponse,
   IngestFilesOptions,
   IngestFilesystemOptions,
   IngestSourceInput,
@@ -22,7 +25,7 @@ import type {
   SearchResponse,
   Transport
 } from './types.js';
-import { embeddingDimensions, VECTORAMP_EMBEDDING_4B } from './embeddings.js';
+import { embeddingDimensions, OPENAI_TEXT_EMBEDDING_3_SMALL, VECTORAMP_EMBEDDING_4B } from './embeddings.js';
 import { normalizePage, toSnakeCasePayload } from './utils.js';
 
 const TEXT_EXTENSIONS = new Set(['.txt', '.md', '.mdx', '.json', '.jsonl', '.csv', '.tsv', '.html', '.xml', '.yaml', '.yml']);
@@ -43,6 +46,7 @@ const CONTENT_TYPES: Record<string, string> = {
 };
 const DEFAULT_EMBEDDING_PROVIDER = 'vectoramp';
 const DEFAULT_EMBEDDING_MODEL = VECTORAMP_EMBEDDING_4B;
+const OPENAI_SECRET_REF = 'emb:openai:api_key';
 
 /** Minimal client context used by dataset resource helpers that call Intelligence. */
 export interface DatasetClientContext {
@@ -105,6 +109,16 @@ export class DatasetResource implements Dataset {
    */
   insert(vectorsOrRequest: VectorRecordInput[] | InsertVectorsRequest): Promise<unknown> {
     return this.service.insert(this.id, vectorsOrRequest);
+  }
+
+  /**
+   * Delete vectors from this dataset by id.
+   *
+   * @param idsOrRequest - Vector ids, or a delete request with optional write concern.
+   * @returns API response with deletion counts/status.
+   */
+  deleteVectors(idsOrRequest: DeleteVectorsInput): Promise<DeleteVectorsResponse> {
+    return this.service.deleteVectors(this.id, idsOrRequest);
   }
 
   /**
@@ -241,15 +255,26 @@ export class DatasetsClient {
       embedding_provider: embeddingProviderSnake,
       embeddingModel,
       embedding_model: embeddingModelSnake,
+      openaiApiKey,
+      openai_api_key: openaiApiKeySnake,
       ...safeRequest
     } = request as CreateDatasetRequest & {
       index_type?: never;
       indexType?: never;
     };
 
+    const savedOpenAIApiKey = openaiApiKey ?? openaiApiKeySnake;
+    if (savedOpenAIApiKey) {
+      await this.transport.request<void>('PUT', `/org-secrets/${encodeURIComponent(OPENAI_SECRET_REF)}`, { body: { value: savedOpenAIApiKey } });
+    }
+
+    const requestedProvider = embeddingProvider ?? embeddingProviderSnake ?? embeddingInput?.provider;
+    const provider = requestedProvider ?? (savedOpenAIApiKey ? 'openai' : DEFAULT_EMBEDDING_PROVIDER);
+    const model = embeddingModel ?? embeddingModelSnake ?? embeddingInput?.model ?? (provider === 'openai' ? OPENAI_TEXT_EMBEDDING_3_SMALL : DEFAULT_EMBEDDING_MODEL);
     const embedding = {
-      provider: embeddingProvider ?? embeddingProviderSnake ?? embeddingInput?.provider ?? DEFAULT_EMBEDDING_PROVIDER,
-      model: embeddingModel ?? embeddingModelSnake ?? embeddingInput?.model ?? DEFAULT_EMBEDDING_MODEL,
+      provider,
+      model,
+      ...(provider === 'openai' ? { secret_ref: OPENAI_SECRET_REF } : {}),
       ...(embeddingInput ?? {})
     };
     const dim = request.dim ?? request.dimension ?? embeddingDimensions[String(embedding.model)];
@@ -323,6 +348,20 @@ export class DatasetsClient {
     const vectors = (request.vectors ?? []).map(normalizeVectorRecord);
     return this.transport.request<unknown>('POST', `${datasetPath(id)}/insert`, {
       body: toSnakeCasePayload({ ...request, vectors })
+    });
+  }
+
+  /**
+   * Delete vectors from a dataset by id.
+   *
+   * @param id - Dataset id.
+   * @param idsOrRequest - Vector ids, or a delete request with optional write concern.
+   * @returns API response with deletion counts/status.
+   */
+  deleteVectors(id: string, idsOrRequest: DeleteVectorsInput): Promise<DeleteVectorsResponse> {
+    const request = normalizeDeleteVectorsRequest(idsOrRequest);
+    return this.transport.request<DeleteVectorsResponse>('DELETE', `${datasetPath(id)}/vectors`, {
+      body: toSnakeCasePayload(request)
     });
   }
 
@@ -521,6 +560,12 @@ function normalizeSearchRequest(request: SearchInput): unknown {
 function normalizeAddTextsRequest(textsOrRequest: AddTextsInput): AddTextsRequest {
   if (typeof textsOrRequest === 'string') return { texts: [textsOrRequest] };
   return Array.isArray(textsOrRequest) ? { texts: textsOrRequest } : textsOrRequest;
+}
+
+function normalizeDeleteVectorsRequest(idsOrRequest: DeleteVectorsInput): DeleteVectorsRequest {
+  if (Array.isArray(idsOrRequest)) return { ids: idsOrRequest };
+  if (typeof idsOrRequest === 'string' || typeof idsOrRequest === 'number') return { ids: [idsOrRequest] };
+  return idsOrRequest;
 }
 
 function defaultFileUploadSourceName(pathOrRoot?: string): string {

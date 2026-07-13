@@ -11,6 +11,7 @@ export {
 } from './embeddings.js';
 export { IntelligenceClient } from './intelligence.js';
 export { IngestionClient } from './ingestion.js';
+export { OPENAI_API_KEY_SECRET_REF, OrgSecretsClient } from './org-secrets.js';
 export type { ListJobsParams, StartJobRequest } from './ingestion.js';
 export { SchedulesClient } from './schedules.js';
 export { SourcesClient, confluenceSource, fileUploadSource, genericSource, gcsSource, googleDriveSource, jiraSource, s3Source, webSource } from './sources.js';

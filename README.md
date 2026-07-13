@@ -80,6 +80,9 @@ const dataset = await client.datasets.create({ name: 'docs' });
 import { openai } from '@vectoramp/vectoramp';
 const openaiDataset = await client.datasets.create({ name: 'openai-docs', embedding: openai('large') });
 
+// Convenience path: save/update the org OpenAI key, then create an OpenAI-backed dataset.
+const byomDataset = await client.datasets.create({ name: 'byom-docs', openaiApiKey: process.env.OPENAI_API_KEY });
+
 // Custom/unknown models require an explicit dim.
 const customDataset = await client.datasets.create({
   name: 'docs',
@@ -99,6 +102,18 @@ await dataset.delete();
 
 Default dimension inference: omit `embedding` to use `vectoramp/VectorAmp-Embedding-4B → 2560`. Optional BYOM inference also supports `openai/text-embedding-3-small → 1536` and `openai/text-embedding-3-large → 3072`.
 
+## Organization secrets
+
+Store or update the current organization's OpenAI API key without returning it to clients:
+
+```ts
+await client.orgSecrets.putOpenAIApiKey(process.env.OPENAI_API_KEY!);
+await client.orgSecrets.updateOpenAIApiKey(process.env.OPENAI_API_KEY!); // alias/upsert
+const status = await client.orgSecrets.hasOpenAIApiKey(); // { exists: true, secretRef: 'emb:openai:api_key' }
+```
+
+Datasets using `openai(...)` reference the saved key with `embedding.secret_ref`.
+
 ## Insert vectors
 
 Vector ids accept a **string or an integer**; integers are serialized as JSON numbers and
@@ -109,6 +124,13 @@ await dataset.insert([
   { id: 1, values: [0.12, 0.98, 0.42], metadata: { title: 'Intro' } },  // numeric id stays numeric
   { id: 'vec_2', values: [0.22, 0.18, 0.62] }
 ]);
+```
+
+## Delete vectors
+
+```ts
+await dataset.deleteVectors(['vec_2']);
+await client.datasets.deleteVectors(dataset.id, { ids: [1, 'vec_2'], writeConcern: 'all' });
 ```
 
 ## Add texts

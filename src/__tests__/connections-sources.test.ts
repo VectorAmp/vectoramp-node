@@ -182,6 +182,38 @@ describe('Typed OAuth source builders', () => {
   });
 });
 
+describe('OrgSecretsClient', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('saves, updates, and checks the org OpenAI key', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    await expect(client.orgSecrets.putOpenAIApiKey('sk-openai-1')).resolves.toBeUndefined();
+    await expect(client.secrets.updateOpenAIApiKey('sk-openai-2')).resolves.toBeUndefined();
+    await expect(client.orgSecrets.hasOpenAIApiKey()).resolves.toEqual({ exists: true, secretRef: 'emb:openai:api_key' });
+
+    expect(fetchMock.mock.calls.map((call) => [call[1].method, call[0]])).toEqual([
+      ['PUT', 'https://api.vectoramp.com/org-secrets/emb%3Aopenai%3Aapi_key'],
+      ['PUT', 'https://api.vectoramp.com/org-secrets/emb%3Aopenai%3Aapi_key'],
+      ['GET', 'https://api.vectoramp.com/org-secrets/emb%3Aopenai%3Aapi_key']
+    ]);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({ value: 'sk-openai-1' });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ value: 'sk-openai-2' });
+  });
+
+  it('reports missing OpenAI org secret on 404', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ error: 'secret not found' }, { status: 404 }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    await expect(client.orgSecrets.hasOpenAIApiKey()).resolves.toEqual({ exists: false, secretRef: 'emb:openai:api_key' });
+  });
+});
+
 describe('ConnectionsClient', () => {
   afterEach(() => vi.restoreAllMocks());
 

@@ -2,6 +2,7 @@ import { ConnectionsClient } from './connections.js';
 import { DatasetsClient } from './datasets.js';
 import { IntelligenceClient } from './intelligence.js';
 import { IngestionClient } from './ingestion.js';
+import { OrgSecretsClient } from './org-secrets.js';
 import { SchedulesClient } from './schedules.js';
 import { SourcesClient } from './sources.js';
 import { RestTransport } from './transport.js';
@@ -26,6 +27,10 @@ export class VectorAmpClient {
   readonly schedules: SchedulesClient;
   /** Managed OAuth connection helpers. */
   readonly connections: ConnectionsClient;
+  /** Organization-scoped secret helpers. */
+  readonly orgSecrets: OrgSecretsClient;
+  /** Backward-friendly alias for {@link orgSecrets}. */
+  readonly secrets: OrgSecretsClient;
   /** Transport used by all sub-clients. */
   readonly transport: Transport;
 
@@ -48,6 +53,8 @@ export class VectorAmpClient {
     this.ingestion = new IngestionClient(this.transport);
     this.schedules = new SchedulesClient(this.transport);
     this.connections = new ConnectionsClient(this.transport);
+    this.orgSecrets = new OrgSecretsClient(this.transport);
+    this.secrets = this.orgSecrets;
     this.datasets = new DatasetsClient(this.transport, { client: this });
   }
 

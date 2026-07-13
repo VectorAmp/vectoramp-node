@@ -300,6 +300,28 @@ describe('VectorAmp client', () => {
     });
   });
 
+  it('can save an OpenAI API key while creating an OpenAI dataset', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'ds_openai', index_type: 'sable' }, { status: 201 }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    await client.datasets.create({ name: 'openai-docs', openaiApiKey: 'sk-openai' });
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      'https://api.vectoramp.com/org-secrets/emb%3Aopenai%3Aapi_key',
+      'https://api.vectoramp.com/datasets'
+    ]);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({ value: 'sk-openai' });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({
+      name: 'openai-docs',
+      dim: 1536,
+      embedding: { provider: 'openai', model: 'text-embedding-3-small', secret_ref: 'emb:openai:api_key' },
+      index_type: 'sable'
+    });
+  });
+
   it('gets, deletes, searches, inserts vectors, and adds texts with simple dataset UX', async () => {
     const fetchMock = vi
       .fn()
@@ -307,6 +329,7 @@ describe('VectorAmp client', () => {
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
       .mockResolvedValueOnce(jsonResponse({ results: [{ id: 'v1', score: 0.99 }] }))
       .mockResolvedValueOnce(jsonResponse({ inserted: 1 }))
+      .mockResolvedValueOnce(jsonResponse({ deleted: 1, requested: 1 }))
       .mockResolvedValueOnce(jsonResponse({ embeddings: [[1, 2]] }))
       .mockResolvedValueOnce(jsonResponse({ inserted: 2 }));
     const client = new VectorAmp({ apiKey: 'sk', baseUrl: 'https://example.test/', apiPrefix: 'v1', fetch: fetchMock as unknown as typeof fetch });
@@ -319,16 +342,20 @@ describe('VectorAmp client', () => {
       results: [{ id: 'v1', score: 0.99 }]
     });
     await client.datasets.insert('ds', [{ id: 'v1', values: [1, 2], metadata: { tag: 'x' } }]);
+    await expect(client.datasets.deleteVectors('ds', { ids: ['v1'], writeConcern: 'all' })).resolves.toEqual({ deleted: 1, requested: 1 });
     await client.datasets.addTexts('ds', 'alpha');
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, 'https://example.test/v1/datasets/a%2Fb', expect.objectContaining({ method: 'GET' }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, 'https://example.test/v1/datasets/a%2Fb', expect.objectContaining({ method: 'DELETE' }));
-    // insert posts to /insert, not /vectors.
+    // insert posts to /insert, vector deletion uses /vectors.
     expect(fetchMock.mock.calls[3][0]).toBe('https://example.test/v1/datasets/ds/insert');
+    expect(fetchMock.mock.calls[4][0]).toBe('https://example.test/v1/datasets/ds/vectors');
+    expect(fetchMock.mock.calls[4][1].method).toBe('DELETE');
     expect(JSON.parse(fetchMock.mock.calls[2][1].body as string)).toEqual({ query_text: 'hello' });
     expect(JSON.parse(fetchMock.mock.calls[3][1].body as string)).toEqual({ vectors: [{ id: 'v1', values: [1, 2], metadata: { tag: 'x' } }] });
-    expect(JSON.parse(fetchMock.mock.calls[4][1].body as string)).toEqual({ texts: ['alpha'] });
-    expect(JSON.parse(fetchMock.mock.calls[5][1].body as string)).toEqual({
+    expect(JSON.parse(fetchMock.mock.calls[4][1].body as string)).toEqual({ ids: ['v1'], write_concern: 'all' });
+    expect(JSON.parse(fetchMock.mock.calls[5][1].body as string)).toEqual({ texts: ['alpha'] });
+    expect(JSON.parse(fetchMock.mock.calls[6][1].body as string)).toEqual({
       vectors: [{ id: 'text-1', values: [1, 2], metadata: { text: 'alpha' } }]
     });
   });

@@ -17,4 +17,5 @@ export { SchedulesClient } from './schedules.js';
 export { SourcesClient, confluenceSource, fileUploadSource, genericSource, gcsSource, googleDriveSource, jiraSource, s3Source, webSource } from './sources.js';
 export { RestTransport } from './transport.js';
 export { VectorAmpError } from './errors.js';
+export { MetadataFieldType } from './types.js';
 export type * from './types.js';

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DatasetResource,
+  MetadataFieldType,
   VectorAmp,
   VectorAmpError,
   confluenceSource,
@@ -254,6 +255,23 @@ describe('VectorAmp client', () => {
       embedding: { provider: 'vectoramp', model: 'VectorAmp-Embedding-4B' },
       index_type: 'sable'
     });
+  });
+
+  it('creates and updates typed metadata schemas', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ id: 'ds_schema', schema_version: 2 }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+    const schema = [{ name: 'price', type: MetadataFieldType.F32 }];
+
+    await client.datasets.create({ name: 'products', schema });
+    await client.datasets.patchMetadataSchema('ds/schema', schema);
+    await client.datasets.replaceMetadataSchema('ds/schema', []);
+
+    const calls = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    expect(JSON.parse(calls[0][1].body as string)).toMatchObject({ schema });
+    expect(calls[1][0]).toBe('https://api.vectoramp.com/datasets/ds%2Fschema/schema');
+    expect(calls[1][1].method).toBe('PATCH');
+    expect(JSON.parse(calls[1][1].body as string)).toEqual({ schema, mode: 'merge' });
+    expect(JSON.parse(calls[2][1].body as string)).toEqual({ schema: [], mode: 'replace' });
   });
 
   it('requires an explicit dim for unknown custom embedding models', async () => {

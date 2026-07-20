@@ -93,6 +93,21 @@ const customDataset = await client.datasets.create({
 // Hybrid (dense + sparse) datasets:
 const hybrid = await client.datasets.create({ name: 'docs', hybrid: true });
 
+// Optional typed metadata schema. Canonical types: STRING, U32, I32, I64,
+// F32, and F64.
+import { MetadataFieldType } from '@vectoramp/vectoramp';
+const schema = [
+  { name: 'price', type: MetadataFieldType.F32 },
+  { name: 'category', type: MetadataFieldType.STRING }
+];
+const products = await client.datasets.create({ name: 'products', schema });
+
+// Merge fields while retaining existing ones, or replace the complete schema.
+await client.datasets.patchMetadataSchema(products.id, [
+  { name: 'inventory', type: MetadataFieldType.U32 }
+]);
+await client.datasets.replaceMetadataSchema(products.id, schema);
+
 // Listing returns a normalized pagination envelope.
 const page = await client.datasets.list({ limit: 20, offset: 0 });
 console.log(page.data, page.total, page.nextOffset);

@@ -114,6 +114,25 @@ export interface DatasetDocument {
 }
 
 /** Request to create a dataset. */
+export const MetadataFieldType = {
+  STRING: 'string', U32: 'u32', I32: 'i32', I64: 'i64', F32: 'f32', F64: 'f64'
+} as const;
+
+/** Canonical type for a typed metadata field. */
+export type MetadataFieldType = typeof MetadataFieldType[keyof typeof MetadataFieldType];
+
+/** A field in a dataset's typed metadata schema. */
+export interface MetadataSchemaField {
+  name: string;
+  type: MetadataFieldType;
+}
+
+/** Request used by the dataset metadata-schema endpoint. */
+export interface UpdateMetadataSchemaRequest {
+  schema: MetadataSchemaField[];
+  mode: 'merge' | 'replace';
+}
+
 export interface CreateDatasetRequest {
   /** Human-readable dataset name. */
   name: string;
@@ -143,6 +162,8 @@ export interface CreateDatasetRequest {
   hybrid?: boolean;
   /** User metadata stored with the dataset. */
   metadata?: JsonObject;
+  /** Optional typed metadata schema configured when the dataset is created. */
+  schema?: MetadataSchemaField[];
   /** Additional API fields. `indexType`/`index_type` are ignored; the SDK always creates SABLE datasets. */
   [key: string]: unknown;
 }

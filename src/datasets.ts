@@ -16,6 +16,7 @@ import type {
   InitUploadResponse,
   IngestionJob,
   InsertVectorsRequest,
+  MetadataSchemaField,
   Page,
   PaginationParams,
   SearchInput,
@@ -273,6 +274,22 @@ export class DatasetsClient {
    */
   delete(id: string): Promise<void> {
     return this.transport.request<void>('DELETE', datasetPath(id));
+  }
+
+  /** Merge fields into a dataset's typed metadata schema. */
+  async patchMetadataSchema(id: string, schema: MetadataSchemaField[]): Promise<DatasetResource> {
+    const dataset = await this.transport.request<Dataset>('PATCH', `${datasetPath(id)}/schema`, {
+      body: { schema, mode: 'merge' }
+    });
+    return this.toResource(dataset);
+  }
+
+  /** Replace a dataset's complete typed metadata schema. */
+  async replaceMetadataSchema(id: string, schema: MetadataSchemaField[]): Promise<DatasetResource> {
+    const dataset = await this.transport.request<Dataset>('PATCH', `${datasetPath(id)}/schema`, {
+      body: { schema, mode: 'replace' }
+    });
+    return this.toResource(dataset);
   }
 
   /**

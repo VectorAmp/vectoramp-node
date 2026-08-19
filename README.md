@@ -183,7 +183,7 @@ await dataset.search({
 ## Ingestion
 
 Source builders keep payloads typed while matching the REST `source_type` contract
-(`web`, `s3`, `gcs`, `gdrive`, `file_upload`, `jira`, `confluence`).
+(`web`, `s3`, `gcs`, `gdrive`, `file_upload`, `jira`, `confluence`, `github`, `gitlab`).
 
 ```ts
 import { webSource, s3Source, confluenceSource } from '@vectoramp/vectoramp';
@@ -207,8 +207,28 @@ const web = await client.sources.createWeb('https://docs.example.com');
 const drive = await client.sources.createGoogleDrive({ folderId: 'google-drive-folder-id' });
 const confluence = await client.sources.createConfluence({ cloudId: 'cloud-id', accessToken: 'token', spaceKeys: ['DOCS'] });
 
+// GitHub reads through the VectorAmp GitHub App, so no token is passed here.
+// Install the app from the Sources page and use the installation id it reports.
+const github = await client.sources.createGitHub({
+  installationId: 42,
+  repositories: ['acme/api', 'acme/web']
+});
+
+const gitlab = await client.sources.createGitLab({
+  projects: ['mygroup/myproject'], // and/or groups: ['mygroup']
+  authMode: 'token',               // defaults to 'oauth'
+  accessToken: process.env.GITLAB_TOKEN
+});
+
 await dataset.ingestSource(web.id!);
 ```
+
+GitHub and GitLab sources ingest repository files plus active branches,
+pull/merge requests, and review discussions. Turn parts off with
+`includePullRequests` / `includeMergeRequests`, `includeReviewThreads`, and
+`includeDirectCommits`, and narrow file selection with `includeGlobs`,
+`excludeGlobs`, and `maxFileSizeBytes`. Typed options are serialized into
+`config` in snake_case.
 
 Use `genericSource(sourceType, payload)` for source types not yet modeled by the SDK.
 
@@ -324,7 +344,7 @@ Both `client.datasets.X(id, …)` and `datasetObj.X(…)` work for dataset-scope
 | Method | Required | Optional | HTTP |
 |---|---|---|---|
 | `create(request)` | `source_type` | source config | `POST /ingestion/sources` |
-| `createWeb/S3/Gcs/GoogleDrive/Jira/Confluence/FileUpload(input)` | per helper | per helper | `POST /ingestion/sources` |
+| `createWeb/S3/Gcs/GoogleDrive/Jira/Confluence/GitHub/GitLab/FileUpload(input)` | per helper | per helper | `POST /ingestion/sources` |
 | `list(params?)` | — | `limit`, `offset` | `GET /ingestion/sources` |
 | `get(sourceId)` | `sourceId` | — | `GET /ingestion/sources/{id}` |
 | `startJob(request)` | `sourceId`, `datasetId` | `pipelineId` | `POST /ingestion/jobs` |

@@ -4,6 +4,8 @@ import type {
   DeleteSourceOptions,
   FileUploadSourceOptions,
   GcsSourceOptions,
+  GitHubSourceOptions,
+  GitLabSourceOptions,
   GoogleDriveSourceOptions,
   IngestionJob,
   IngestionSource,
@@ -120,6 +122,107 @@ export function confluenceSource(input: ConfluenceSourceOptions): IngestionSourc
   const { connection, connectionId, config, ...rest } = input;
   const mergedConfig = withSourceConfig(config, { connection_id: connectionId ?? connection });
   return { ...rest, source_type: 'confluence', ...(mergedConfig ? { config: mergedConfig } : {}) };
+}
+
+/**
+ * Build a GitHub ingestion source payload.
+ *
+ * GitHub is read through the VectorAmp GitHub App, so no token is passed here.
+ * Install the app from the Sources page in the VectorAmp app and pass the
+ * installation id it reports. Typed fields are serialized into `config`.
+ *
+ * @param input - GitHub source options.
+ * @returns Source creation input with `source_type: "github"`.
+ */
+export function githubSource(input: GitHubSourceOptions): IngestionSourceInput {
+  const {
+    installationId,
+    repositories,
+    refMode,
+    refs,
+    excludedRefs,
+    activeBranchDays,
+    includePullRequests,
+    includeReviewThreads,
+    includeDirectCommits,
+    includeGlobs,
+    excludeGlobs,
+    maxFileSizeBytes,
+    syncMode,
+    config,
+    ...rest
+  } = input;
+  const mergedConfig = withSourceConfig(config, {
+    installation_id: installationId,
+    repositories,
+    ref_mode: refMode,
+    refs,
+    excluded_refs: excludedRefs,
+    active_branch_days: activeBranchDays,
+    include_pull_requests: includePullRequests,
+    include_review_threads: includeReviewThreads,
+    include_direct_commits: includeDirectCommits,
+    include_globs: includeGlobs,
+    exclude_globs: excludeGlobs,
+    max_file_size_bytes: maxFileSizeBytes,
+    sync_mode: syncMode
+  });
+  return { ...rest, source_type: 'github', ...(mergedConfig ? { config: mergedConfig } : {}) };
+}
+
+/**
+ * Build a GitLab ingestion source payload.
+ *
+ * Authenticate with an access token (`authMode: "token"` plus `accessToken`)
+ * or a stored OAuth connection (`connectionId`). At least one group or project
+ * is required by the API. Typed fields are serialized into `config`.
+ *
+ * @param input - GitLab source options.
+ * @returns Source creation input with `source_type: "gitlab"`.
+ */
+export function gitlabSource(input: GitLabSourceOptions): IngestionSourceInput {
+  const {
+    groups,
+    projects,
+    authMode,
+    gitlabUrl,
+    accessToken,
+    connection,
+    connectionId,
+    refMode,
+    refs,
+    excludedRefs,
+    activeBranchDays,
+    includeMergeRequests,
+    includeReviewThreads,
+    includeDirectCommits,
+    includeGlobs,
+    excludeGlobs,
+    maxFileSizeBytes,
+    syncMode,
+    config,
+    ...rest
+  } = input;
+  const mergedConfig = withSourceConfig(config, {
+    groups,
+    projects,
+    auth_mode: authMode,
+    gitlab_url: gitlabUrl,
+    access_token: accessToken,
+    connection_id: connectionId ?? connection,
+    ref_mode: refMode,
+    refs,
+    excluded_refs: excludedRefs,
+    active_branch_days: activeBranchDays,
+    include_merge_requests: includeMergeRequests,
+    include_review_threads: includeReviewThreads,
+    include_direct_commits: includeDirectCommits,
+    include_globs: includeGlobs,
+    exclude_globs: excludeGlobs,
+    max_file_size_bytes: maxFileSizeBytes,
+    sync_mode: syncMode
+  });
+  return { ...rest, source_type: 'gitlab', ...(mergedConfig ? { config: mergedConfig } : {}) };
 }
 
 /**
@@ -344,5 +447,25 @@ export class SourcesClient {
    */
   createConfluence(input: ConfluenceSourceOptions): Promise<IngestionSource> {
     return this.create(confluenceSource(input));
+  }
+
+  /**
+   * Create a GitHub ingestion source backed by the VectorAmp GitHub App.
+   *
+   * @param input - GitHub source options.
+   * @returns The created source.
+   */
+  createGitHub(input: GitHubSourceOptions): Promise<IngestionSource> {
+    return this.create(githubSource(input));
+  }
+
+  /**
+   * Create a GitLab ingestion source.
+   *
+   * @param input - GitLab source options.
+   * @returns The created source.
+   */
+  createGitLab(input: GitLabSourceOptions): Promise<IngestionSource> {
+    return this.create(gitlabSource(input));
   }
 }

@@ -3,6 +3,8 @@ import {
   VectorAmp,
   confluenceSource,
   gcsSource,
+  githubSource,
+  gitlabSource,
   googleDriveSource,
   jiraSource,
   type Connection,
@@ -178,6 +180,124 @@ describe('Typed OAuth source builders', () => {
       source_type: 'gcs',
       bucket: 'docs-bucket',
       prefix: 'docs/'
+    });
+  });
+});
+
+describe('Source-control source builders', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('githubSource serializes typed fields into config (snake_case)', () => {
+    expect(githubSource({ name: 'Platform', installationId: 42, repositories: ['octo/hello-world'] })).toEqual({
+      name: 'Platform',
+      source_type: 'github',
+      config: { installation_id: 42, repositories: ['octo/hello-world'] }
+    });
+  });
+
+  it('githubSource serializes every selection option and merges extra config', () => {
+    expect(
+      githubSource({
+        installationId: 7,
+        repositories: ['acme/api'],
+        refMode: 'explicit',
+        refs: ['main'],
+        excludedRefs: ['wip'],
+        activeBranchDays: 30,
+        includePullRequests: false,
+        includeReviewThreads: false,
+        includeDirectCommits: false,
+        includeGlobs: ['docs/**'],
+        excludeGlobs: ['**/*.lock'],
+        maxFileSizeBytes: 2_000_000,
+        syncMode: 'full',
+        config: { experimental: true }
+      })
+    ).toEqual({
+      source_type: 'github',
+      config: {
+        experimental: true,
+        installation_id: 7,
+        repositories: ['acme/api'],
+        ref_mode: 'explicit',
+        refs: ['main'],
+        excluded_refs: ['wip'],
+        active_branch_days: 30,
+        include_pull_requests: false,
+        include_review_threads: false,
+        include_direct_commits: false,
+        include_globs: ['docs/**'],
+        exclude_globs: ['**/*.lock'],
+        max_file_size_bytes: 2_000_000,
+        sync_mode: 'full'
+      }
+    });
+  });
+
+  it('gitlabSource defaults to oauth-shaped config and maps connection to connection_id', () => {
+    expect(gitlabSource({ projects: ['mygroup/myproject'] })).toEqual({
+      source_type: 'gitlab',
+      config: { projects: ['mygroup/myproject'] }
+    });
+
+    expect(gitlabSource({ groups: ['mygroup'], connection: 'conn_gl' })).toEqual({
+      source_type: 'gitlab',
+      config: { groups: ['mygroup'], connection_id: 'conn_gl' }
+    });
+  });
+
+  it('gitlabSource serializes token auth and self-managed URLs', () => {
+    expect(
+      gitlabSource({
+        projects: ['g/p'],
+        authMode: 'token',
+        gitlabUrl: 'https://gitlab.example.com',
+        accessToken: 'glpat-secret',
+        includeMergeRequests: false,
+        maxFileSizeBytes: 500_000
+      })
+    ).toEqual({
+      source_type: 'gitlab',
+      config: {
+        projects: ['g/p'],
+        auth_mode: 'token',
+        gitlab_url: 'https://gitlab.example.com',
+        access_token: 'glpat-secret',
+        include_merge_requests: false,
+        max_file_size_bytes: 500_000
+      }
+    });
+  });
+
+  it('createGitHub and createGitLab POST to /ingestion/sources', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ id: 'src_gh', source_type: 'github' }, { status: 201 }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'src_gl', source_type: 'gitlab' }, { status: 201 }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    await expect(
+      client.sources.createGitHub({ name: 'Platform', installationId: 42, repositories: ['octo/hello-world'] })
+    ).resolves.toMatchObject({ id: 'src_gh' });
+    await expect(
+      client.sources.createGitLab({ projects: ['mygroup/myproject'], authMode: 'token', accessToken: 'glpat-secret' })
+    ).resolves.toMatchObject({ id: 'src_gl' });
+
+    const calls = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls[0][0]).toBe('https://api.vectoramp.com/ingestion/sources');
+    expect(JSON.parse(calls[0][1].body as string)).toEqual({
+      name: 'Platform',
+      source_type: 'github',
+      config: { installation_id: 42, repositories: ['octo/hello-world'] }
+    });
+    expect(calls[1][0]).toBe('https://api.vectoramp.com/ingestion/sources');
+    expect(JSON.parse(calls[1][1].body as string)).toEqual({
+      source_type: 'gitlab',
+      config: {
+        projects: ['mygroup/myproject'],
+        auth_mode: 'token',
+        access_token: 'glpat-secret'
+      }
     });
   });
 });

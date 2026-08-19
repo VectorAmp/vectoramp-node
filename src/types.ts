@@ -317,7 +317,16 @@ export interface OpenAISecretStatus {
 }
 
 /** Built-in ingestion source types. */
-export type SourceType = 's3' | 'web' | 'gcs' | 'gdrive' | 'file_upload' | 'jira' | 'confluence';
+export type SourceType =
+  | 's3'
+  | 'web'
+  | 'gcs'
+  | 'gdrive'
+  | 'file_upload'
+  | 'jira'
+  | 'confluence'
+  | 'github'
+  | 'gitlab';
 
 /** Shared source creation options. */
 export interface BaseSourceOptions {
@@ -424,6 +433,96 @@ export interface ConfluenceSourceOptions extends BaseSourceOptions {
   connection?: string;
   /** Managed connection id alias. Serialized to `config.connection_id`. */
   connectionId?: string;
+}
+
+/** Branch selection strategy for source-control sources. Server default is `active`. */
+export type SourceRefMode = 'default' | 'active' | 'explicit' | (string & {});
+
+/** Auth mode accepted by GitLab source options. */
+export type GitLabAuthMode = 'oauth' | 'token' | (string & {});
+
+/**
+ * GitHub source options.
+ *
+ * GitHub is read through the VectorAmp GitHub App, so no token is passed here.
+ * Install the app from the Sources page in the VectorAmp app and use the
+ * installation id it reports. Every field below is serialized into
+ * `config` in snake_case.
+ */
+export interface GitHubSourceOptions extends BaseSourceOptions {
+  /** GitHub App installation id. */
+  installationId: number;
+  /** `owner/repo` full names to ingest. */
+  repositories: string[];
+  /** Branch selection strategy. Server default is `active`. */
+  refMode?: SourceRefMode;
+  /** Explicit branch names, used with `refMode: 'explicit'`. */
+  refs?: string[];
+  /** Branch names to skip. */
+  excludedRefs?: string[];
+  /** Activity window in days (1–90) for `refMode: 'active'`. Server default is 7. */
+  activeBranchDays?: number;
+  /** Ingest pull requests. Server default is true. */
+  includePullRequests?: boolean;
+  /** Ingest review discussions. Server default is true. */
+  includeReviewThreads?: boolean;
+  /** Ingest commits pushed outside a pull request. Server default is true. */
+  includeDirectCommits?: boolean;
+  /** Path globs to include. Server default is `["**\/*"]`. */
+  includeGlobs?: string[];
+  /** Path globs to skip. */
+  excludeGlobs?: string[];
+  /** Per-file size ceiling in bytes (1–25_000_000). Server default is 1_000_000. */
+  maxFileSizeBytes?: number;
+  /** Sync mode. Server default is `incremental`. */
+  syncMode?: string;
+}
+
+/**
+ * GitLab source options for gitlab.com or a self-managed instance.
+ *
+ * Authenticate with an access token (`authMode: 'token'` plus `accessToken`)
+ * or a stored OAuth connection (`connectionId`). At least one group or project
+ * is required by the API. Every field below is serialized into `config` in
+ * snake_case.
+ */
+export interface GitLabSourceOptions extends BaseSourceOptions {
+  /** Group paths to ingest, e.g. `['mygroup']`. Required unless `projects` is set. */
+  groups?: string[];
+  /** Project paths with namespace, e.g. `['mygroup/myproject']`. Required unless `groups` is set. */
+  projects?: string[];
+  /** Auth mode. Server default is `oauth`. */
+  authMode?: GitLabAuthMode;
+  /** Instance base URL. Server default is `https://gitlab.com`. */
+  gitlabUrl?: string;
+  /** Personal or group access token for `authMode: 'token'`. */
+  accessToken?: string;
+  /** Managed connection id to reuse stored OAuth credentials. Serialized to `config.connection_id`. */
+  connection?: string;
+  /** Managed connection id alias. Serialized to `config.connection_id`. */
+  connectionId?: string;
+  /** Branch selection strategy. Server default is `active`. */
+  refMode?: SourceRefMode;
+  /** Explicit branch names, used with `refMode: 'explicit'`. */
+  refs?: string[];
+  /** Branch names to skip. */
+  excludedRefs?: string[];
+  /** Activity window in days (1–90) for `refMode: 'active'`. Server default is 7. */
+  activeBranchDays?: number;
+  /** Ingest merge requests. Server default is true. */
+  includeMergeRequests?: boolean;
+  /** Ingest review discussions. Server default is true. */
+  includeReviewThreads?: boolean;
+  /** Ingest commits pushed outside a merge request. Server default is true. */
+  includeDirectCommits?: boolean;
+  /** Path globs to include. Server default is `["**\/*"]`. */
+  includeGlobs?: string[];
+  /** Path globs to skip. */
+  excludeGlobs?: string[];
+  /** Per-file size ceiling in bytes (1–25_000_000). Server default is 1_000_000. */
+  maxFileSizeBytes?: number;
+  /** Sync mode. Server default is `incremental`. */
+  syncMode?: string;
 }
 
 /** Source creation payload with a required source type. */

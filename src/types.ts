@@ -845,11 +845,11 @@ export interface AskRequest {
   query?: string;
   /** Backward-compatible question alias accepted by older API deployments. */
   question?: string;
-  /** Dataset id to constrain the answer. Use `all` to query across accessible datasets. */
-  datasetId?: string | 'all';
-  /** Dataset id in API/snake_case style. */
-  dataset_id?: string | 'all';
-  /** Backward-compatible multi-dataset field accepted by older API deployments. */
+  /**
+   * Datasets to scope the answer to. Omit it (or pass an empty array) to search every dataset the
+   * API key can see — the retired `datasetId`/`dataset_id` field and its `'all'` sentinel are
+   * rejected by the API with a 400.
+   */
   datasetIds?: string[];
   /** Metadata filter for context retrieval. */
   filter?: JsonObject;

@@ -488,9 +488,9 @@ describe('VectorAmp client', () => {
     await expect(dataset.delete()).resolves.toBeUndefined();
     expect(() => new DatasetResource(dataset.service, { id: 'orphan' }).ask('hi')).toThrow('dataset ask requires a VectorAmp client context');
 
-    // A bare string ask becomes { query }; dataset id is injected.
-    expect(JSON.parse(fetchMock.mock.calls[5][1].body as string)).toEqual({ query: 'why?', dataset_id: 'ds' });
-    expect(JSON.parse(fetchMock.mock.calls[6][1].body as string)).toEqual({ question: 'why with context?', top_k: 2, dataset_id: 'ds' });
+    // A bare string ask becomes { query }; the dataset scopes itself via dataset_ids.
+    expect(JSON.parse(fetchMock.mock.calls[5][1].body as string)).toEqual({ query: 'why?', dataset_ids: ['ds'] });
+    expect(JSON.parse(fetchMock.mock.calls[6][1].body as string)).toEqual({ question: 'why with context?', top_k: 2, dataset_ids: ['ds'] });
     // ingestSource with an existing id starts a job directly.
     expect(JSON.parse(fetchMock.mock.calls[7][1].body as string)).toEqual({ source_id: 'src_123', dataset_id: 'ds' });
     expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
@@ -711,14 +711,54 @@ describe('VectorAmp client', () => {
 
     await expect(client.ask('What is VectorAmp?')).resolves.toEqual({ answer: 'hello' });
     const events = [];
-    for await (const event of client.askStream({ question: 'stream me', datasetId: 'ds' })) events.push(event);
+    for await (const event of client.askStream({ question: 'stream me', datasetIds: ['ds'] })) events.push(event);
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({ query: 'What is VectorAmp?' });
     expect(fetchMock.mock.calls[1][0]).toBe('https://api.vectoramp.com/intelligence/query');
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ question: 'stream me', dataset_id: 'ds', stream: true });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ question: 'stream me', dataset_ids: ['ds'], stream: true });
     expect(events).toEqual([{ event: 'delta', data: { token: 'hi' } }, { data: 'plain' }]);
   });
 
+  it('scopes an ask across every requested dataset', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => jsonResponse({ answer: 'across three' }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    await expect(client.ask({ query: 'why?', datasetIds: ['ds_1', 'ds_2', 'ds_3'] })).resolves.toEqual({
+      answer: 'across three'
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({
+      query: 'why?',
+      dataset_ids: ['ds_1', 'ds_2', 'ds_3']
+    });
+  });
+
+  it('omits the scope entirely when no dataset is requested', async () => {
+    // An absent dataset_ids is how the API spells "every dataset I can see"; an
+    // empty array would be a narrower, different request.
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => jsonResponse({ answer: 'everything' }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    await client.ask({ query: 'why?', datasetIds: [] });
+    await client.ask({ query: 'why?', datasetIds: ['all'] });
+
+    for (const call of fetchMock.mock.calls) {
+      const body = JSON.parse(call[1].body as string);
+      expect(body).not.toHaveProperty('dataset_ids');
+      expect(body).not.toHaveProperty('dataset_id');
+    }
+  });
+
+  it('rejects the retired datasetId field locally instead of letting the API 400', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ answer: 'unreachable' }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+
+    await expect(client.ask({ query: 'why?', datasetId: 'ds' })).rejects.toThrow(/datasetIds: \[id\]/);
+    await expect(client.ask({ query: 'why?', dataset_id: 'all' })).rejects.toThrow(/retired/);
+    await expect(async () => {
+      for await (const _ of client.askStream({ query: 'why?', datasetId: 'ds' })) void _;
+    }).rejects.toThrow(/retired/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 
   it('supports Intelligence sessions and messages', async () => {
     const fetchMock = vi

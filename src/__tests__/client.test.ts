@@ -738,8 +738,10 @@ describe('VectorAmp client', () => {
     const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => jsonResponse({ answer: 'everything' }));
     const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
 
+    await client.ask({ query: 'why?' });
     await client.ask({ query: 'why?', datasetIds: [] });
     await client.ask({ query: 'why?', datasetIds: ['all'] });
+    await client.ask({ query: 'why?', datasetIds: ['', '  '] });
 
     for (const call of fetchMock.mock.calls) {
       const body = JSON.parse(call[1].body as string);

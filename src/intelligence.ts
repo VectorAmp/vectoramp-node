@@ -29,7 +29,7 @@ function normalizeAskRequest(request: AskRequest): AskRequest {
   }
 
   const { datasetIds, ...rest } = request;
-  const scope = (datasetIds ?? []).filter((id) => id && id !== 'all');
+  const scope = (datasetIds ?? []).map((id) => String(id).trim()).filter((id) => id && id !== 'all');
   return scope.length ? { ...rest, datasetIds: scope } : rest;
 }
 

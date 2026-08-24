@@ -170,7 +170,7 @@ export class DatasetResource implements Dataset {
   ask(request: string | AskRequest): Promise<AskResponse> {
     if (!this.client) throw new Error('dataset ask requires a VectorAmp client context');
     const askRequest = typeof request === 'string' ? { query: request } : request;
-    return this.client.ask({ ...askRequest, datasetId: this.id });
+    return this.client.ask({ ...askRequest, datasetIds: [this.id] });
   }
 
   /**

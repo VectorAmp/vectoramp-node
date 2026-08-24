@@ -262,14 +262,20 @@ await client.ingestion.retryJob(job.id!);
 const answer = await dataset.ask('What changed in the Q4 planning docs?');
 console.log(answer.answer, answer.sources);
 
-// Unscoped questions query across all accessible datasets.
+// Scope a question to any number of datasets with `datasetIds`.
+const acrossTwo = await client.ask({
+  query: 'Which contracts renew in Q4?',
+  datasetIds: [dataset.id, 'ds_invoices']
+});
+
+// Omit `datasetIds` to query across every accessible dataset.
 const acrossAll = await client.ask('Summarize everything about onboarding.');
 ```
 
 Streaming uses Server-Sent Events:
 
 ```ts
-for await (const event of client.askStream({ query: 'Summarize this dataset', datasetId: dataset.id })) {
+for await (const event of client.askStream({ query: 'Summarize this dataset', datasetIds: [dataset.id] })) {
   if (event.event === 'done') break;
   console.log(event.data);
 }
@@ -332,7 +338,7 @@ Both `client.datasets.X(id, …)` and `datasetObj.X(…)` work for dataset-scope
 ### `client.intelligence` (and `client.ask` / `client.askStream`)
 | Method | Required | Optional | HTTP |
 |---|---|---|---|
-| `ask(request)` | `query` | `datasetId`(`"all"`), `topK`(5), `conversationHistory`, `includeSources` | `POST /intelligence/query` |
+| `ask(request)` | `query` | `datasetIds` (omit for all), `topK`(5), `conversationHistory`, `includeSources` | `POST /intelligence/query` |
 | `askStream(request)` | `query` | same as `ask` | `POST /intelligence/query` (SSE) |
 | `createSession(input?)` | — | `title`, `workspaceId`, `datasetId`, `metadata` | `POST /intelligence/sessions` |
 | `listSessions(params?)` | — | `limit` | `GET /intelligence/sessions` |

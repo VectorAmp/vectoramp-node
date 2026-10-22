@@ -28,6 +28,7 @@ export {
   webSource
 } from './sources.js';
 export { RestTransport } from './transport.js';
+export { EmbeddedTransport } from './embedded.js';
 export { VectorAmpError } from './errors.js';
 export { MetadataFieldType } from './types.js';
 export type * from './types.js';

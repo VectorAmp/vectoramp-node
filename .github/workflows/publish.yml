@@ -4,7 +4,6 @@ on:
   push:
     tags:
       - 'v*.*.*'
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -21,10 +20,45 @@ jobs:
           node-version: '22.14.0'
           registry-url: 'https://registry.npmjs.org'
           cache: npm
+      - name: Verify release versions and runtime availability
+        run: |
+          test "${GITHUB_REF_NAME#v}" = "$(node -p 'require(`./package.json`).version')"
+          runtime_version="$(node -p 'require(`./package.json`).optionalDependencies[`@vectoramp/sable-embedded-runtime`]')"
+          test "$runtime_version" = "$(npm view --registry https://registry.npmjs.org/ "@vectoramp/sable-embedded-runtime@$runtime_version" version)"
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: Verify CommonJS bundle loads
+        run: node -e "const sdk = require('./dist/index.cjs'); if (typeof sdk.EmbeddedTransport !== 'function') process.exit(1)"
       - run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  public-canary:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Install the public SDK and embedded runtime
+        run: |
+          install_root="$(mktemp -d)"
+          cd "$install_root"
+          npm init -y >/dev/null
+          for attempt in $(seq 1 24); do
+            if npm install --ignore-scripts --no-audit --no-fund --registry https://registry.npmjs.org/ "@vectoramp/vectoramp@${GITHUB_REF_NAME#v}"; then
+              printf 'INSTALL_ROOT=%s\n' "$install_root" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1
+      - name: Run embedded public-registry canary
+        run: |
+          cp src/__tests__/embedded.e2e.mjs "$INSTALL_ROOT/embedded.e2e.mjs"
+          cd "$INSTALL_ROOT"
+          node embedded.e2e.mjs

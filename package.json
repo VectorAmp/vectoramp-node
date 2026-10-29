@@ -1,6 +1,6 @@
 {
   "name": "@vectoramp/vectoramp",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Official VectorAmp Node.js SDK",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -20,6 +20,9 @@
     "NOTICE"
   ],
   "sideEffects": false,
+  "optionalDependencies": {
+    "@vectoramp/sable-embedded-runtime": "0.1.2"
+  },
   "engines": {
     "node": ">=18"
   },

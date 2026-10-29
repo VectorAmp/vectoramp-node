@@ -24,6 +24,26 @@ Official TypeScript/JavaScript SDK for [VectorAmp](https://vectoramp.com).
 npm install @vectoramp/vectoramp
 ```
 
+For local development, CI, and tests, the same SDK can use the optional
+embedded SABLE runtime:
+
+```ts
+import { VectorAmp } from '@vectoramp/vectoramp';
+
+const client = await VectorAmp.embedded('./.vectoramp-test');
+const dataset = await client.datasets.create({
+  name: 'test-data',
+  dim: 4,
+  metric: 'cosine'
+});
+```
+
+The native runtime is governed by the separate proprietary VectorAmp Embedded
+SABLE Development License and is limited to non-production use. Production
+applications must use hosted or customer-operated VectorAmp SABLE. See the
+[embedded SABLE guide](https://docs.vectoramp.com/guides/embedded-sable-local-vector-database)
+for supported platforms, limits, filters, persistence, and license terms.
+
 ## Quick start
 
 ```ts

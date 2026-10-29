@@ -58,6 +58,18 @@ export class VectorAmpClient {
     this.datasets = new DatasetsClient(this.transport, { client: this });
   }
 
+  /** Create a client backed by local, in-process SABLE storage. */
+  static async embedded(root: string): Promise<VectorAmpClient> {
+    const { EmbeddedTransport } = await import('./embedded.js');
+    return new VectorAmpClient({ transport: new EmbeddedTransport(root) });
+  }
+
+  /** Release transport resources when the active transport supports it. */
+  async close(): Promise<void> {
+    const close = (this.transport as Transport & { close?: () => void | Promise<void> }).close;
+    if (close) await close.call(this.transport);
+  }
+
   /**
    * Ask VectorAmp Intelligence a question.
    *

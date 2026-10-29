@@ -141,6 +141,16 @@ export class DatasetResource implements Dataset {
     return this.service.delete(this.id);
   }
 
+  /** Build or checkpoint this dataset's SABLE index. */
+  optimize(): Promise<Record<string, unknown>> {
+    return this.service.optimize(this.id);
+  }
+
+  /** Return this dataset's SABLE index lifecycle state. */
+  indexStatus(): Promise<Record<string, unknown>> {
+    return this.service.indexStatus(this.id);
+  }
+
   /**
    * List source documents retained for this dataset.
    *
@@ -315,6 +325,16 @@ export class DatasetsClient {
       body: { schema, mode: 'replace' }
     });
     return this.toResource(dataset);
+  }
+
+  /** Build or checkpoint a dataset's SABLE index. */
+  optimize(id: string): Promise<Record<string, unknown>> {
+    return this.transport.request<Record<string, unknown>>('POST', `${datasetPath(id)}/optimize`);
+  }
+
+  /** Return a dataset's SABLE index lifecycle state. */
+  indexStatus(id: string): Promise<Record<string, unknown>> {
+    return this.transport.request<Record<string, unknown>>('GET', `${datasetPath(id)}/index-status`);
   }
 
   /**

@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { VectorAmpClient } from '../client.js';
-import { EmbeddedTransport, type EmbeddedNativeCollection, type EmbeddedRuntime } from '../embedded.js';
+import { EmbeddedTransport, type EmbeddedNativeDataset, type EmbeddedRuntime } from '../embedded.js';
 
-class FakeCollection implements EmbeddedNativeCollection {
+class FakeDataset implements EmbeddedNativeDataset {
   readonly records: Array<{ id: string; values: number[]; metadata?: Record<string, string> }> = [];
   indexed = false;
   lastFilter: unknown;
@@ -45,18 +45,18 @@ describe('EmbeddedTransport', () => {
   afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
 
   it('uses the normal SDK dataset API for local SABLE', async () => {
-    const collections = new Map<string, FakeCollection>();
+    const datasets = new Map<string, FakeDataset>();
     const runtime: EmbeddedRuntime = {
-      SableCollection: {
+      SableDataset: {
         async create(options) {
-          const collection = new FakeCollection();
-          collections.set(String(options.path), collection);
-          return collection;
+          const dataset = new FakeDataset();
+          datasets.set(String(options.path), dataset);
+          return dataset;
         },
         async open(path) {
-          const collection = collections.get(path);
-          if (!collection) throw new Error('missing fake collection');
-          return collection;
+          const dataset = datasets.get(path);
+          if (!dataset) throw new Error('missing fake dataset');
+          return dataset;
         }
       }
     };
@@ -91,20 +91,20 @@ describe('EmbeddedTransport', () => {
   });
 
   it('persists the catalog and rejects unsupported or invalid local operations', async () => {
-    const collections = new Map<string, FakeCollection>();
+    const datasets = new Map<string, FakeDataset>();
     const created: Array<Record<string, unknown>> = [];
     const runtime: EmbeddedRuntime = {
-      SableCollection: {
+      SableDataset: {
         async create(options) {
           created.push(options);
-          const collection = new FakeCollection();
-          collections.set(String(options.path), collection);
-          return collection;
+          const dataset = new FakeDataset();
+          datasets.set(String(options.path), dataset);
+          return dataset;
         },
         async open(path) {
-          const collection = collections.get(path);
-          if (!collection) throw new Error('missing fake collection');
-          return collection;
+          const dataset = datasets.get(path);
+          if (!dataset) throw new Error('missing fake dataset');
+          return dataset;
         }
       }
     };
@@ -149,7 +149,7 @@ describe('EmbeddedTransport', () => {
         advanced_filters: [{ field: 'ordinal', kind: 'i32', gte: 1, lte: 9 }]
       }
     });
-    expect(collections.values().next().value?.lastFilter).toEqual({
+    expect(datasets.values().next().value?.lastFilter).toEqual({
       equality: { tenant: 'acme' },
       ranges: [{ field: 'ordinal', kind: 'i32', minInclusive: 1, maxInclusive: 9 }],
       predicates: []
@@ -161,7 +161,7 @@ describe('EmbeddedTransport', () => {
         advanced_filters: [{ field: 'ordinal', op: 'lt', value: 10 }]
       }
     });
-    expect(collections.values().next().value?.lastFilter).toEqual({
+    expect(datasets.values().next().value?.lastFilter).toEqual({
       equality: { tenant: 'acme' },
       ranges: [],
       predicates: [{ field: 'ordinal', kind: 'i32', op: 'lt', value: 10 }]
@@ -177,14 +177,14 @@ describe('EmbeddedTransport', () => {
     await expect(transport.request('GET', '/sources')).rejects.toThrow('is not available in embedded mode');
     await transport.close();
 
-    const collection = collections.values().next().value;
-    expect(collection?.closed).toBe(true);
-    if (collection) collection.closed = false;
+    const runtimeDataset = datasets.values().next().value;
+    expect(runtimeDataset?.closed).toBe(true);
+    if (runtimeDataset) runtimeDataset.closed = false;
     const reopened = new EmbeddedTransport(root, runtime);
     expect(await reopened.request('GET', `/datasets/${dataset.id}`)).toMatchObject({ id: dataset.id });
     expect(await reopened.request('GET', `/datasets/${dataset.id}/stats`)).toMatchObject({ vector_count: 1 });
     await reopened.request('DELETE', `/datasets/${dataset.id}`);
-    expect(collection?.closed).toBe(true);
+    expect(runtimeDataset?.closed).toBe(true);
     await expect(reopened.request('GET', `/datasets/${dataset.id}`)).rejects.toThrow('was not found');
     await reopened.close();
   });

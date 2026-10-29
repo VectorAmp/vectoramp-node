@@ -10,7 +10,7 @@ export type EmbeddedNativeStatus = {
   trainingError?: string;
 };
 
-export type EmbeddedNativeCollection = {
+export type EmbeddedNativeDataset = {
   insert(records: Array<{ id: number | bigint | string; values: number[]; metadata?: Record<string, string> }>): Promise<void>;
   search(query: number[], topK: number, filter?: unknown): Promise<Array<{ id: string; distance: number; metadata: Record<string, string> }>>;
   optimize(): Promise<void>;
@@ -19,9 +19,9 @@ export type EmbeddedNativeCollection = {
 };
 
 export type EmbeddedRuntime = {
-  SableCollection: {
-    create(options: Record<string, unknown>): Promise<EmbeddedNativeCollection>;
-    open(path: string): Promise<EmbeddedNativeCollection>;
+  SableDataset: {
+    create(options: Record<string, unknown>): Promise<EmbeddedNativeDataset>;
+    open(path: string): Promise<EmbeddedNativeDataset>;
   };
 };
 
@@ -47,7 +47,7 @@ export class EmbeddedTransport implements Transport {
   private readonly catalogPath: string;
   private readonly runtime?: EmbeddedRuntime;
   private runtimePromise?: Promise<EmbeddedRuntime>;
-  private readonly collections = new Map<string, EmbeddedNativeCollection>();
+  private readonly datasets = new Map<string, EmbeddedNativeDataset>();
   private catalog: Catalog;
 
   constructor(root: string, runtime?: EmbeddedRuntime) {
@@ -79,24 +79,24 @@ export class EmbeddedTransport implements Transport {
       await this.deleteDataset(datasetId);
       return undefined as T;
     }
-    const collection = await this.collection(datasetId);
+    const runtimeDataset = await this.runtimeDataset(datasetId);
     if (operation === 'stats' && verb === 'GET') {
-      const status = await collection.status();
+      const status = await runtimeDataset.status();
       return { vector_count: status.vectorCount, index_state: status.state } as T;
     }
-    if (operation === 'index-status' && verb === 'GET') return collection.status() as Promise<T>;
+    if (operation === 'index-status' && verb === 'GET') return runtimeDataset.status() as Promise<T>;
     if (operation === 'optimize' && verb === 'POST') {
-      await collection.optimize();
-      return collection.status() as Promise<T>;
+      await runtimeDataset.optimize();
+      return runtimeDataset.status() as Promise<T>;
     }
-    if (operation === 'insert' && verb === 'POST') return this.insert(collection, options.body) as Promise<T>;
-    if (operation === 'search' && verb === 'POST') return this.search(collection, dataset, options.body) as Promise<T>;
+    if (operation === 'insert' && verb === 'POST') return this.insert(runtimeDataset, options.body) as Promise<T>;
+    if (operation === 'search' && verb === 'POST') return this.search(runtimeDataset, dataset, options.body) as Promise<T>;
     throw new Error(`${verb} is not allowed for ${path}`);
   }
 
   async close(): Promise<void> {
-    await Promise.all([...this.collections.values()].map((collection) => collection.close()));
-    this.collections.clear();
+    await Promise.all([...this.datasets.values()].map((dataset) => dataset.close()));
+    this.datasets.clear();
   }
 
   private async createDataset(body: Record<string, unknown>): Promise<DatasetRecord> {
@@ -116,7 +116,7 @@ export class EmbeddedTransport implements Transport {
       mode: 'embedded'
     };
     const runtime = await this.loadRuntime();
-    const collection = await runtime.SableCollection.create({
+    const runtimeDataset = await runtime.SableDataset.create({
       path: resolve(this.root, 'datasets', id),
       dimension,
       metric: dataset.metric,
@@ -125,12 +125,12 @@ export class EmbeddedTransport implements Transport {
       trainingThreshold: Number(tuning.training_threshold ?? 10_000)
     });
     this.catalog.datasets[id] = dataset;
-    this.collections.set(id, collection);
+    this.datasets.set(id, runtimeDataset);
     this.saveCatalog();
     return dataset;
   }
 
-  private async insert(collection: EmbeddedNativeCollection, rawBody: unknown): Promise<{ inserted: number }> {
+  private async insert(dataset: EmbeddedNativeDataset, rawBody: unknown): Promise<{ inserted: number }> {
     const body = (rawBody ?? {}) as { vectors?: Array<Record<string, unknown>> };
     const vectors = body.vectors ?? [];
     const records = vectors.map((record) => {
@@ -146,11 +146,11 @@ export class EmbeddedTransport implements Transport {
         )
       };
     });
-    await collection.insert(records);
+    await dataset.insert(records);
     return { inserted: records.length };
   }
 
-  private async search(collection: EmbeddedNativeCollection, dataset: DatasetRecord, rawBody: unknown): Promise<unknown> {
+  private async search(runtimeDataset: EmbeddedNativeDataset, dataset: DatasetRecord, rawBody: unknown): Promise<unknown> {
     const body = (rawBody ?? {}) as Record<string, unknown>;
     if (!Array.isArray(body.query)) throw new Error('embedded mode requires a vector query');
     const equality = (body.filters ?? body.filter ?? {}) as Record<string, unknown>;
@@ -190,7 +190,7 @@ export class EmbeddedTransport implements Transport {
     const filter = Object.keys(normalizedEquality).length || ranges.length || predicates.length
       ? { equality: normalizedEquality, ranges, predicates }
       : undefined;
-    const hits = await collection.search(body.query as number[], Number(body.top_k ?? 10), filter);
+    const hits = await runtimeDataset.search(body.query as number[], Number(body.top_k ?? 10), filter);
     const includeMetadata = body.include_metadata !== false;
     return {
       results: hits.map((hit) => ({
@@ -208,15 +208,15 @@ export class EmbeddedTransport implements Transport {
     return dataset;
   }
 
-  private async collection(id: string): Promise<EmbeddedNativeCollection> {
+  private async runtimeDataset(id: string): Promise<EmbeddedNativeDataset> {
     this.dataset(id);
-    let collection = this.collections.get(id);
-    if (!collection) {
+    let runtimeDataset = this.datasets.get(id);
+    if (!runtimeDataset) {
       const runtime = await this.loadRuntime();
-      collection = await runtime.SableCollection.open(resolve(this.root, 'datasets', id));
-      this.collections.set(id, collection);
+      runtimeDataset = await runtime.SableDataset.open(resolve(this.root, 'datasets', id));
+      this.datasets.set(id, runtimeDataset);
     }
-    return collection;
+    return runtimeDataset;
   }
 
   private loadRuntime(): Promise<EmbeddedRuntime> {
@@ -227,9 +227,9 @@ export class EmbeddedTransport implements Transport {
 
   private async deleteDataset(id: string): Promise<void> {
     this.dataset(id);
-    const collection = this.collections.get(id);
-    if (collection) await collection.close();
-    this.collections.delete(id);
+    const runtimeDataset = this.datasets.get(id);
+    if (runtimeDataset) await runtimeDataset.close();
+    this.datasets.delete(id);
     delete this.catalog.datasets[id];
     this.saveCatalog();
     rmSync(resolve(this.root, 'datasets', id), { recursive: true, force: true });

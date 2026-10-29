@@ -21,7 +21,7 @@
   ],
   "sideEffects": false,
   "optionalDependencies": {
-    "@vectoramp/sable-embedded-runtime": "0.1.0"
+    "@vectoramp/sable-embedded-runtime": "0.1.2"
   },
   "engines": {
     "node": ">=18"

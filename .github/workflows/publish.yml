@@ -29,6 +29,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: Verify public release payload
+        run: node .github/scripts/verify-release-payload.mjs
       - name: Verify CommonJS bundle loads
         run: node -e "const sdk = require('./dist/index.cjs'); if (typeof sdk.EmbeddedTransport !== 'function') process.exit(1)"
       - run: npm publish --access public --provenance

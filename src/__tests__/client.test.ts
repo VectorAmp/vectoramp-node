@@ -31,6 +31,17 @@ function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
 describe('VectorAmp client', () => {
   afterEach(() => vi.restoreAllMocks());
 
+  it.each([undefined, ''])('preserves explicit scope keys and omits only undefined in text writes (%s)', async (securityScopeKey) => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ embeddings: [[0.1]] }))
+      .mockResolvedValueOnce(jsonResponse({ inserted: 1 }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+    await client.datasets.addTexts('ds', { texts: ['private'], securityScopeKey });
+    const vector = JSON.parse(fetchMock.mock.calls[1][1].body as string).vectors[0];
+    if (securityScopeKey === undefined) expect(vector).not.toHaveProperty('security_scope_key');
+    else expect(vector).toHaveProperty('security_scope_key', '');
+  });
+
   it('uses the default unprefixed API origin and X-API-Key auth', async () => {
     const fetchMock = vi.fn(async () => jsonResponse([{ id: 'ds_1' }])) as unknown as typeof fetch;
     const client = new VectorAmp({ apiKey: 'sk_test', fetch: fetchMock });

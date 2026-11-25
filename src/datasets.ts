@@ -424,7 +424,7 @@ export class DatasetsClient {
       id: entry.id ?? `text-${index + 1}`,
       values: embeddings[index],
       metadata: { ...(request.metadata ?? {}), ...(entry.metadata ?? {}), text: entry.text },
-      ...(request.securityScopeKey ? { securityScopeKey: request.securityScopeKey } : {})
+      ...(request.securityScopeKey !== undefined ? { securityScopeKey: request.securityScopeKey } : {})
     }));
     return this.transport.request<unknown>('POST', `${datasetPath(id)}/insert`, {
       body: toSnakeCasePayload({ vectors })

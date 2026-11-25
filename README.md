@@ -276,6 +276,23 @@ const detail = await client.ingestion.getJob(job.id!);
 await client.ingestion.retryJob(job.id!);
 ```
 
+## Dataset permissions
+
+Assign writes to an active dataset-local scope by external key. Omit the key to use the dataset
+default.
+
+```ts
+await dataset.insert([{ id: 'v1', values: [0.1, 0.2], securityScopeKey: 'tenant-acme' }]);
+await dataset.addTexts({ texts: ['private handbook'], securityScopeKey: 'tenant-acme' });
+await dataset.ingestFiles(['handbook.pdf'], { securityScopeKey: 'tenant-acme' });
+await client.schedules.create({
+  sourceId: 'src_1', datasetId: dataset.id, cron: '0 0 * * *',
+  securityScope: { externalKey: 'tenant-acme' }
+});
+```
+
+Search is filtered automatically from the caller's effective permissions.
+
 ## Intelligence / ask
 
 ```ts

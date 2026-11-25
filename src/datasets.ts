@@ -423,7 +423,8 @@ export class DatasetsClient {
     const vectors = records.map((entry, index) => ({
       id: entry.id ?? `text-${index + 1}`,
       values: embeddings[index],
-      metadata: { ...(request.metadata ?? {}), ...(entry.metadata ?? {}), text: entry.text }
+      metadata: { ...(request.metadata ?? {}), ...(entry.metadata ?? {}), text: entry.text },
+      ...(request.securityScopeKey ? { securityScopeKey: request.securityScopeKey } : {})
     }));
     return this.transport.request<unknown>('POST', `${datasetPath(id)}/insert`, {
       body: toSnakeCasePayload({ vectors })
@@ -491,7 +492,10 @@ export class DatasetsClient {
 
     const descriptors = await Promise.all(paths.map((path) => fileDescriptor(path)));
     const init = await this.transport.request<InitUploadResponse>('POST', `/ingestion/sources/${encodeURIComponent(sourceId)}/upload/init`, {
-      body: toSnakeCasePayload({ files: descriptors.map(({ name, sizeBytes, contentType }) => ({ name, sizeBytes, contentType })) })
+      body: toSnakeCasePayload({
+        files: descriptors.map(({ name, sizeBytes, contentType }) => ({ name, sizeBytes, contentType })),
+        securityScopeKey: options.securityScopeKey
+      })
     });
 
     const uploads = init.uploads ?? [];
@@ -535,7 +539,8 @@ export class DatasetsClient {
     if (paths.length === 0) throw new Error(`No matching files found under ${root}.`);
     return this.ingestFiles(id, paths, {
       sourceName: options.sourceName ?? defaultFileUploadSourceName(root),
-      metadata: options.metadata
+      metadata: options.metadata,
+      securityScopeKey: options.securityScopeKey
     });
   }
 

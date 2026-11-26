@@ -31,6 +31,17 @@ function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
 describe('VectorAmp client', () => {
   afterEach(() => vi.restoreAllMocks());
 
+  it.each([undefined, ''])('preserves explicit scope keys and omits only undefined in text writes (%s)', async (securityScopeKey) => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ embeddings: [[0.1]] }))
+      .mockResolvedValueOnce(jsonResponse({ inserted: 1 }));
+    const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
+    await client.datasets.addTexts('ds', { texts: ['private'], securityScopeKey });
+    const vector = JSON.parse(fetchMock.mock.calls[1][1].body as string).vectors[0];
+    if (securityScopeKey === undefined) expect(vector).not.toHaveProperty('security_scope_key');
+    else expect(vector).toHaveProperty('security_scope_key', '');
+  });
+
   it('uses the default unprefixed API origin and X-API-Key auth', async () => {
     const fetchMock = vi.fn(async () => jsonResponse([{ id: 'ds_1' }])) as unknown as typeof fetch;
     const client = new VectorAmp({ apiKey: 'sk_test', fetch: fetchMock });
@@ -361,7 +372,7 @@ describe('VectorAmp client', () => {
     });
     await client.datasets.insert('ds', [{ id: 'v1', values: [1, 2], metadata: { tag: 'x' } }]);
     await expect(client.datasets.deleteVectors('ds', { ids: ['v1'], writeConcern: 'all' })).resolves.toEqual({ deleted: 1, requested: 1 });
-    await client.datasets.addTexts('ds', 'alpha');
+    await client.datasets.addTexts('ds', { texts: ['alpha'], securityScopeKey: 'tenant-acme' });
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, 'https://example.test/v1/datasets/a%2Fb', expect.objectContaining({ method: 'GET' }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, 'https://example.test/v1/datasets/a%2Fb', expect.objectContaining({ method: 'DELETE' }));
@@ -374,7 +385,7 @@ describe('VectorAmp client', () => {
     expect(JSON.parse(fetchMock.mock.calls[4][1].body as string)).toEqual({ ids: ['v1'], write_concern: 'all' });
     expect(JSON.parse(fetchMock.mock.calls[5][1].body as string)).toEqual({ texts: ['alpha'] });
     expect(JSON.parse(fetchMock.mock.calls[6][1].body as string)).toEqual({
-      vectors: [{ id: 'text-1', values: [1, 2], metadata: { text: 'alpha' } }]
+      vectors: [{ id: 'text-1', values: [1, 2], metadata: { text: 'alpha' }, security_scope_key: 'tenant-acme' }]
     });
   });
 
@@ -571,7 +582,9 @@ describe('VectorAmp client', () => {
       .mockResolvedValueOnce(jsonResponse({ job_id: 'job_files', status: 'pending' }));
     const client = new VectorAmp({ apiKey: 'sk', fetch: fetchMock as unknown as typeof fetch });
 
-    await expect(client.datasets.ingestFiles('ds', [filePath], { sourceName: 'Docs upload' })).resolves.toMatchObject({
+    await expect(client.datasets.ingestFiles('ds', [filePath], {
+      sourceName: 'Docs upload', securityScopeKey: 'tenant-acme'
+    })).resolves.toMatchObject({
       job_id: 'job_files'
     });
 
@@ -591,6 +604,7 @@ describe('VectorAmp client', () => {
     const initBody = JSON.parse(fetchMock.mock.calls[1][1].body as string);
     expect(initBody.files[0]).toMatchObject({ name: 'intro.md', content_type: 'text/markdown' });
     expect(initBody.files[0].size_bytes).toBeGreaterThan(0);
+    expect(initBody.security_scope_key).toBe('tenant-acme');
     // The presigned PUT bypasses the API key and uses the absolute URL.
     expect(fetchMock.mock.calls[2][1].method).toBe('PUT');
     expect(JSON.parse(fetchMock.mock.calls[3][1].body as string)).toEqual({ job_id: 'upl_1', file_ids: ['file_1'] });
@@ -877,7 +891,8 @@ describe('VectorAmp client', () => {
       sourceId: 'src_1',
       datasetId: 'ds_1',
       cron: '0 0 * * *',
-      timezone: 'UTC'
+      timezone: 'UTC',
+      securityScope: { externalKey: 'tenant-acme' }
     });
     expect(created).toMatchObject({ id: 'sch_2' });
     const createBody = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[2][1].body as string;
@@ -885,7 +900,8 @@ describe('VectorAmp client', () => {
       source_id: 'src_1',
       dataset_id: 'ds_1',
       cron: '0 0 * * *',
-      timezone: 'UTC'
+      timezone: 'UTC',
+      security_scope: { external_key: 'tenant-acme' }
     });
 
     await expect(client.schedules.update('sch_2', { enabled: false })).resolves.toMatchObject({ enabled: false });

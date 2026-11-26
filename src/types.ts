@@ -248,6 +248,8 @@ export interface VectorRecord {
   values: number[];
   /** User metadata stored with the vector. */
   metadata?: JsonObject;
+  /** Dataset-local external security scope key. Omit to use the dataset default. */
+  securityScopeKey?: string;
   /** Optional source text for the vector. */
   text?: string;
   /** Additional API fields. */
@@ -301,6 +303,8 @@ export interface AddTextsRequest {
   metadata?: JsonObject;
   /** Optional namespace. */
   namespace?: string;
+  /** Dataset-local security scope applied to every generated vector. */
+  securityScopeKey?: string;
   /** Additional API fields. */
   [key: string]: unknown;
 }
@@ -700,6 +704,8 @@ export interface IngestFilesOptions {
   description?: string;
   /** Metadata merged into the auto-created source metadata. `dataset_id` is always included. */
   metadata?: JsonObject;
+  /** Dataset-local security scope applied to every file in this upload job. */
+  securityScopeKey?: string;
 }
 
 /** Options for {@link DatasetsClient.ingestFilesystem} disk walking. */
@@ -712,6 +718,16 @@ export interface IngestFilesystemOptions {
   maxBytesPerFile?: number;
   /** Name for the auto-created `file_upload` source. Defaults to `file-upload-<basename(root)>`. */
   sourceName?: string;
+  /** Dataset-local security scope applied to every file in this upload job. */
+  securityScopeKey?: string;
+}
+
+/** Dataset-local security scope selection for a scheduled ingestion. */
+export interface SecurityScopeSelection {
+  /** External key of an active scope in the target dataset. */
+  externalKey: string;
+  /** Scope type. Defaults to `custom` on the server. */
+  scopeType?: string;
 }
 
 /** One presigned upload target returned by `upload/init`. */
@@ -798,6 +814,8 @@ export interface ScheduleCreateInput {
   name?: string;
   /** Optional metadata blob. */
   metadata?: Record<string, unknown>;
+  /** Security scope assigned to vectors produced by each scheduled run. */
+  securityScope?: SecurityScopeSelection;
   /** Additional API fields. */
   [key: string]: unknown;
 }
